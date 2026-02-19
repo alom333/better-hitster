@@ -15,7 +15,7 @@ CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI") 
 
-PLAYLIST_ID = "6i2Qd6OpeRBAzxfscNXeWp"
+PLAYLIST_ID = "6kA1H3sioFmZp03rmRF9t4?si=983bf0097d654bf7"
 sessions = {}
 
 def get_auth_header():
@@ -162,6 +162,7 @@ def reveal():
         "year": song["album"]["release_date"][:4],
         "image": song["album"]["images"][0]["url"]
     }
+
 
 
 
