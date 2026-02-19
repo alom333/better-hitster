@@ -9,7 +9,6 @@ body {
     font-family: 'Segoe UI';
     text-align: center;
 }
-
 .card {
     background: #1e1e1e;
     max-width: 450px;
@@ -18,11 +17,9 @@ body {
     border-radius: 20px;
     box-shadow: 0 10px 30px rgba(0,0,0,0.6);
 }
-
 h1 {
     color: #1DB954;
 }
-
 button {
     background: linear-gradient(45deg, #1DB954, #1ed760);
     border: none;
@@ -32,63 +29,76 @@ button {
     font-size: 16px;
     font-weight: bold;
     cursor: pointer;
+    color: black;
 }
-
 button:hover {
     transform: scale(1.05);
 }
-
 #album {
     margin-top: 20px;
     display: none;
 }
-
 #album img {
     width: 250px;
     border-radius: 15px;
 }
-
 #info {
     margin-top: 15px;
 }
+#login-btn {
+    display: none;
+}
 </style>
 </head>
-
 <body>
-
 <div class="card">
-<h1>🎵 Hitster IL 🎵</h1>
-
-<a href="/login"><button>Login with Spotify</button></a>
-
-<br>
-
-<button onclick="playSong()">▶️ New Song</button>
-<button onclick="reveal()">👀 Reveal</button>
-
-<div id="album">
-    <img id="cover">
-</div>
-
-<div id="info"></div>
+    <h1>🎵 Hitster IL 🎵</h1>
+    <a href="/login"><button id="login-btn">🔑 Login with Spotify</button></a>
+    <br>
+    <button onclick="playSong()">▶️ New Song</button>
+    <button onclick="reveal()">👀 Reveal</button>
+    <div id="album">
+        <img id="cover">
+    </div>
+    <div id="info"></div>
 </div>
 
 <script>
+// Check login status on page load
+window.onload = function() {
+    fetch("/status")
+    .then(res => res.json())
+    .then(data => {
+        if (!data.logged_in) {
+            document.getElementById("login-btn").style.display = "inline-block";
+            document.getElementById("info").innerHTML = "⚠️ Please login with Spotify first.";
+        } else {
+            document.getElementById("info").innerHTML = `✅ Logged in! ${data.track_count} tracks loaded.`;
+        }
+    });
+};
+
 function playSong() {
     document.getElementById("album").style.display = "none";
     document.getElementById("info").innerHTML = "⌛ Loading song...";
-
     fetch("/play")
     .then(res => res.json())
     .then(data => {
         if (data.error) {
-            alert("Play Error: " + data.error);
-            document.getElementById("info").innerHTML = "";
+            if (data.error === "NOT_LOGGED_IN" || data.error === "PLAYLIST_EMPTY") {
+                document.getElementById("info").innerHTML = "⚠️ Session expired. Redirecting to login...";
+                setTimeout(() => { window.location.href = "/login"; }, 1500);
+            } else {
+                document.getElementById("info").innerHTML = "❌ " + data.error;
+            }
         } else {
             document.getElementById("info").innerHTML = "▶️ Playing! Listen closely...";
         }
     })
-    .catch(err => console.error("Fetch error:", err));
+    .catch(err => {
+        document.getElementById("info").innerHTML = "❌ Network error. Try again.";
+        console.error("Fetch error:", err);
+    });
 }
 
 function reveal() {
@@ -96,13 +106,11 @@ function reveal() {
     .then(res => res.json())
     .then(data => {
         if (data.error) {
-            alert("Reveal Error: " + data.error);
+            document.getElementById("info").innerHTML = "❌ " + data.error;
             return;
         }
-
         document.getElementById("cover").src = data.image;
         document.getElementById("album").style.display = "block";
-
         document.getElementById("info").innerHTML = `
             <h2>${data.name}</h2>
             <h3>🎤 ${data.artist}</h3>
@@ -111,7 +119,5 @@ function reveal() {
     });
 }
 </script>
-
 </body>
 </html>
-
