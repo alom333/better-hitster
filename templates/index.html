@@ -76,20 +76,29 @@ button:hover {
 <script>
 function playSong() {
     document.getElementById("album").style.display = "none";
-    document.getElementById("info").innerHTML = "";
+    document.getElementById("info").innerHTML = "⌛ Loading song...";
 
     fetch("/play")
     .then(res => res.json())
     .then(data => {
-        if (data.error) alert(data.error);
-    });
+        if (data.error) {
+            alert("Play Error: " + data.error);
+            document.getElementById("info").innerHTML = "";
+        } else {
+            document.getElementById("info").innerHTML = "▶️ Playing! Listen closely...";
+        }
+    })
+    .catch(err => console.error("Fetch error:", err));
 }
 
 function reveal() {
     fetch("/reveal")
     .then(res => res.json())
     .then(data => {
-        if (data.error) return;
+        if (data.error) {
+            alert("Reveal Error: " + data.error);
+            return;
+        }
 
         document.getElementById("cover").src = data.image;
         document.getElementById("album").style.display = "block";
@@ -105,3 +114,4 @@ function reveal() {
 
 </body>
 </html>
+
