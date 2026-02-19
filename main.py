@@ -23,47 +23,49 @@ def get_auth_header():
     return base64.b64encode(auth_str.encode()).decode()
 
 def get_playlist_tracks():
-    # 1. Get the Token
-    auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
-    token_url = "https://accounts.spotify.com/api/token"
-    
-    token_res = requests.post(
-        token_url,
-        data={"grant_type": "client_credentials"},
-        headers={"Authorization": f"Basic {auth_header}"}
-    )
-    
-    token_data = token_res.json()
-    token = token_data.get("access_token")
-
-    if not token:
-        print(f"❌ Failed to get track-fetching token: {token_data}")
+    if not CLIENT_ID or not CLIENT_SECRET:
+        print("❌ ERROR: CLIENT_ID or CLIENT_SECRET is None. Check Render Env Vars!")
         return []
 
-    # 2. Get the Tracks
-    # Note: Using the official API URL directly
-    tracks_url = f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks?limit=50"
-    headers = {"Authorization": f"Bearer {token}"}
+    # 1. Get the Token
+    auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
     
     try:
-        res = requests.get(tracks_url, headers=headers)
-        data = res.json()
+        token_res = requests.post(
+            "https://accounts.spotify.com/api/token",
+            data={"grant_type": "client_credentials"},
+            headers={"Authorization": f"Basic {auth_header}"},
+            timeout=10
+        )
+        token = token_res.json().get("access_token")
         
-        if "items" not in data:
-            print(f"❌ API response missing 'items': {data}")
+        if not token:
+            print(f"❌ Token Error: {token_res.text}")
             return []
 
-        # Extracting valid tracks only
-        valid_tracks = [
-            item["track"] for item in data["items"] 
-            if item.get("track") and item["track"].get("uri")
-        ]
+        # 2. Get the Tracks - Note the corrected URL structure
+        # We use the direct tracks endpoint
+        tracks_url = f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks"
+        params = {"limit": 50, "fields": "items(track(name,uri,artists,album(name,release_date,images)))"}
         
-        print(f"✅ Successfully loaded {len(valid_tracks)} tracks!")
-        return valid_tracks
+        res = requests.get(
+            tracks_url, 
+            headers={"Authorization": f"Bearer {token}"},
+            params=params,
+            timeout=10
+        )
+        
+        data = res.json()
+        if "items" not in data:
+            print(f"❌ Playlist API Error: {data}")
+            return []
+
+        tracks = [i["track"] for i in data["items"] if i.get("track") and i["track"].get("uri")]
+        print(f"✅ Success! Loaded {len(tracks)} tracks.")
+        return tracks
 
     except Exception as e:
-        print(f"❌ Error during track fetch: {e}")
+        print(f"❌ Fatal Error in get_playlist_tracks: {e}")
         return []
 
 @app.get("/")
@@ -160,5 +162,6 @@ def reveal():
         "year": song["album"]["release_date"][:4],
         "image": song["album"]["images"][0]["url"]
     }
+
 
 
