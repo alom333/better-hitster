@@ -13,7 +13,7 @@ CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI")
 
-PLAYLIST_ID = "https://open.spotify.com/playlist/6i2Qd6OpeRBAzxfscNXeWp?si=1VSjOCguSxuPeL1atDZaOA"
+PLAYLIST_ID = "6i2Qd6OpeRBAzxfscNXeWp"
 
 sessions = {}
 
@@ -68,8 +68,8 @@ def login():
 # -----------------------------
 # Callback
 # -----------------------------
-@app.get("/callback")
-def callback(code: str):
+# @app.get("/callback")
+# def callback(code: str):
     # token_res = requests.post(
     #     "https://accounts.spotify.com/api/token",
     #     data={
@@ -88,24 +88,35 @@ def callback(code: str):
 
     # return RedirectResponse("/")
 
+@app.get("/callback")
+def callback(code: str):
+
     token_res = requests.post(
-    "https://accounts.spotify.com/api/token",
-    data={
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": REDIRECT_URI,
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
-    },
-    headers={
-        "Content-Type": "application/x-www-form-urlencoded"
+        "https://accounts.spotify.com/api/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": REDIRECT_URI,
+        },
+        auth=(CLIENT_ID, CLIENT_SECRET),
+    )
+
+    token_json = token_res.json()
+
+    print("STATUS:", token_res.status_code)
+    print("TEXT:", token_res.text)
+
+    if "access_token" not in token_json:
+        return {"error": token_json}
+
+    sessions["user"] = {
+        "token": token_json["access_token"],
+        "current_song": None,
+        "buffer": get_playlist_tracks()
     }
-)
 
-print("STATUS:", token_res.status_code)
-print("TEXT:", token_res.text)
+    return RedirectResponse("/")
 
-return {"debug": token_res.text}
 
 
 
@@ -178,4 +189,5 @@ def reveal():
         "year": song["album"]["release_date"][:4],
         "image": song["album"]["images"][0]["url"]
     }
+
 
