@@ -13,7 +13,7 @@ CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI")
 
-PLAYLIST_ID = "YOUR_PLAYLIST_ID"
+PLAYLIST_ID = "https://open.spotify.com/playlist/6i2Qd6OpeRBAzxfscNXeWp?si=1VSjOCguSxuPeL1atDZaOA"
 
 sessions = {}
 
@@ -112,3 +112,4 @@ def reveal():
         "year": track["album"]["release_date"][:4],
         "album_image": track["album"]["images"][0]["url"]
     }
+
