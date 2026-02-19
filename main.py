@@ -2,7 +2,7 @@ import os
 import random
 import requests
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from urllib.parse import urlencode
 
@@ -17,6 +17,9 @@ PLAYLIST_ID = "https://open.spotify.com/playlist/6i2Qd6OpeRBAzxfscNXeWp?si=1VSjO
 
 sessions = {}
 
+# -----------------------------
+# Helper: Get playlist tracks
+# -----------------------------
 def get_playlist_tracks():
     token = requests.post(
         "https://accounts.spotify.com/api/token",
@@ -26,31 +29,45 @@ def get_playlist_tracks():
 
     headers = {"Authorization": f"Bearer {token}"}
 
-    res = requests.get(
-        f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks?limit=100",
-        headers=headers,
-    )
+    tracks = []
+    url = f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks?limit=100"
 
-    return [item["track"] for item in res.json()["items"]]
+    while url:
+        res = requests.get(url, headers=headers).json()
+        for item in res["items"]:
+            if item["track"]:
+                tracks.append(item["track"])
+        url = res.get("next")
+
+    return tracks
 
 
+# -----------------------------
+# Homepage
+# -----------------------------
 @app.get("/")
 def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
+# -----------------------------
+# Login
+# -----------------------------
 @app.get("/login")
 def login():
     params = {
         "response_type": "code",
         "client_id": CLIENT_ID,
-        "scope": "user-modify-playback-state user-read-playback-state",
+        "scope": "user-modify-playback-state user-read-playback-state user-read-currently-playing",
         "redirect_uri": REDIRECT_URI,
     }
     url = "https://accounts.spotify.com/authorize?" + urlencode(params)
     return RedirectResponse(url)
 
 
+# -----------------------------
+# Callback
+# -----------------------------
 @app.get("/callback")
 def callback(code: str):
     token_res = requests.post(
@@ -63,53 +80,81 @@ def callback(code: str):
         auth=(CLIENT_ID, CLIENT_SECRET),
     ).json()
 
-    access_token = token_res["access_token"]
-
     sessions["user"] = {
-        "token": access_token,
-        "current_song": None
+        "token": token_res["access_token"],
+        "current_song": None,
+        "buffer": get_playlist_tracks()
     }
 
     return RedirectResponse("/")
 
 
+# -----------------------------
+# Play Song
+# -----------------------------
 @app.get("/play")
 def play():
     user = sessions.get("user")
     if not user:
         return {"error": "Not logged in"}
 
-    tracks = get_playlist_tracks()
-    track = random.choice(tracks)
+    token = user["token"]
 
-    user["current_song"] = track
+    # Get devices
+    devices = requests.get(
+        "https://api.spotify.com/v1/me/player/devices",
+        headers={"Authorization": f"Bearer {token}"}
+    ).json()
 
-    headers = {
-        "Authorization": f"Bearer {user['token']}",
-        "Content-Type": "application/json"
-    }
+    if not devices["devices"]:
+        return {"error": "Open Spotify on your phone first."}
 
+    device_id = devices["devices"][0]["id"]
+
+    # Transfer playback
+    requests.put(
+        "https://api.spotify.com/v1/me/player",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"device_ids": [device_id], "play": False}
+    )
+
+    # Pick random song
+    if not user["buffer"]:
+        user["buffer"] = get_playlist_tracks()
+
+    song = random.choice(user["buffer"])
+    user["current_song"] = song
+
+    # Play it
     requests.put(
         "https://api.spotify.com/v1/me/player/play",
-        headers=headers,
-        json={"uris": [track["uri"]]}
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "uris": [song["uri"]],
+            "position_ms": 0
+        }
     )
 
     return {"status": "Playing"}
 
 
+# -----------------------------
+# Reveal
+# -----------------------------
 @app.get("/reveal")
 def reveal():
     user = sessions.get("user")
     if not user or not user["current_song"]:
-        return {"error": "No song"}
+        return {"error": "No song playing"}
 
-    track = user["current_song"]
+    song = user["current_song"]
 
     return {
-        "name": track["name"],
-        "artist": track["artists"][0]["name"],
-        "year": track["album"]["release_date"][:4],
-        "album_image": track["album"]["images"][0]["url"]
+        "name": song["name"],
+        "artist": song["artists"][0]["name"],
+        "year": song["album"]["release_date"][:4],
+        "image": song["album"]["images"][0]["url"]
     }
-
