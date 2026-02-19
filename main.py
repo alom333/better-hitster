@@ -119,7 +119,6 @@ def callback(code: str):
 
 
 
-
 # -----------------------------
 # Play Song
 # -----------------------------
@@ -189,5 +188,6 @@ def reveal():
         "year": song["album"]["release_date"][:4],
         "image": song["album"]["images"][0]["url"]
     }
+
 
 
