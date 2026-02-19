@@ -104,30 +104,38 @@ def callback(code: str):
 @app.get("/play")
 def play():
     user = sessions.get("user")
-    if not user or "token" not in user:
-        return {"error": "Not logged in"}
+    if not user: return {"error": "Not logged in"}
+    headers = {"Authorization": f"Bearer {user['token']}"}
+    
+    # 1. Get all available devices
+    devices_res = requests.get("https://api.spotify.com/v1/me/player/devices", headers=headers).json()
+    devices = devices_res.get("devices", [])
+    if not devices:
+        return {"error": "Open Spotify on your phone first!"}
 
+    # 2. Pick a device (prefer active, else take the first one)
+    active = [d for d in devices if d['is_active']]
+    device_id = active[0]['id'] if active else devices[0]['id']
+
+    # 3. FORCE WAKE UP the device (This stops the need to play a song manually)
+    requests.put(
+        "https://api.spotify.com/v1/me/player",
+        headers=headers,
+        json={"device_ids": [device_id], "play": True} # 'play': True wakes it up
+    )
+
+    # 4. Pick and Play the song
     if not user.get("buffer"):
-        # If buffer is empty, try one last fetch
         user["buffer"] = get_playlist_tracks(user["token"])
-        if not user["buffer"]:
-            return {"error": "Playlist inaccessible. Check Render logs for 403 details."}
-
+    
     song = random.choice(user["buffer"])
     user["current_song"] = song
 
-    headers = {"Authorization": f"Bearer {user['token']}"}
-    
-    # 1. Get Device
-    devices_res = requests.get("https://api.spotify.com/v1/me/player/devices", headers=headers).json()
-    devices = devices_res.get("devices", [])
-    
-    if not devices:
-        return {"error": "No active Spotify device found. Open Spotify!"}
-    
-    # 2. Start Playback
-    play_url = "https://api.spotify.com/v1/me/player/play"
-    requests.put(play_url, headers=headers, json={"uris": [song["uri"]]})
+    requests.put(
+        f"https://api.spotify.com/v1/me/player/play?device_id={device_id}",
+        headers=headers,
+        json={"uris": [song["uri"]]}
+    )
     
     return {"status": "Playing"}
 
@@ -144,3 +152,4 @@ def reveal():
         "year": s["album"]["release_date"][:4],
         "image": s["album"]["images"][0]["url"]
     }
+
