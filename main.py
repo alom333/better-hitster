@@ -23,30 +23,47 @@ def get_auth_header():
     return base64.b64encode(auth_str.encode()).decode()
 
 def get_playlist_tracks():
-    # 1. Get Access Token
+    # 1. Get the Token
     auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
-    res = requests.post(
-        "https://accounts.spotify.com/api/token",
-        data={"grant_type": "client_credentials"},
-        headers={"Authorization": f"Basic {auth_header}"},
-    )
-    token = res.json().get("access_token")
+    token_url = "https://accounts.spotify.com/api/token"
     
-    # 2. Fetch tracks (Limited to 100 for speed)
+    token_res = requests.post(
+        token_url,
+        data={"grant_type": "client_credentials"},
+        headers={"Authorization": f"Basic {auth_header}"}
+    )
+    
+    token_data = token_res.json()
+    token = token_data.get("access_token")
+
+    if not token:
+        print(f"❌ Failed to get track-fetching token: {token_data}")
+        return []
+
+    # 2. Get the Tracks
+    # Note: Using the official API URL directly
+    tracks_url = f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks?limit=50"
     headers = {"Authorization": f"Bearer {token}"}
-    url = f"https://accounts.spotify.com/api/token2"
     
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        data = response.json()
-        # Extract only what we need to save memory/time
-        tracks = [
-            item["track"] for item in data.get("items", []) 
+        res = requests.get(tracks_url, headers=headers)
+        data = res.json()
+        
+        if "items" not in data:
+            print(f"❌ API response missing 'items': {data}")
+            return []
+
+        # Extracting valid tracks only
+        valid_tracks = [
+            item["track"] for item in data["items"] 
             if item.get("track") and item["track"].get("uri")
         ]
-        return tracks
+        
+        print(f"✅ Successfully loaded {len(valid_tracks)} tracks!")
+        return valid_tracks
+
     except Exception as e:
-        print(f"Error fetching tracks: {e}")
+        print(f"❌ Error during track fetch: {e}")
         return []
 
 @app.get("/")
@@ -143,4 +160,5 @@ def reveal():
         "year": song["album"]["release_date"][:4],
         "image": song["album"]["images"][0]["url"]
     }
+
 
