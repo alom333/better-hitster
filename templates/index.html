@@ -1,65 +1,103 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Better Hitster</title>
-    <style>
-        body {
-            background: #121212;
-            color: white;
-            font-family: Arial;
-            text-align: center;
-        }
+<title>Better-Hitster</title>
+<style>
+body {
+    background: #121212;
+    color: white;
+    font-family: 'Segoe UI';
+    text-align: center;
+}
 
-        button {
-            background: #1DB954;
-            border: none;
-            padding: 12px 25px;
-            margin: 10px;
-            border-radius: 30px;
-            color: white;
-            font-size: 16px;
-            cursor: pointer;
-        }
+.card {
+    background: #1e1e1e;
+    max-width: 450px;
+    margin: 50px auto;
+    padding: 30px;
+    border-radius: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+}
 
-        img {
-            width: 300px;
-            border-radius: 15px;
-            margin-top: 20px;
-        }
+h1 {
+    color: #1DB954;
+}
 
-        #info {
-            margin-top: 20px;
-        }
-    </style>
+button {
+    background: linear-gradient(45deg, #1DB954, #1ed760);
+    border: none;
+    padding: 12px 25px;
+    margin: 10px;
+    border-radius: 50px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+button:hover {
+    transform: scale(1.05);
+}
+
+#album {
+    margin-top: 20px;
+    display: none;
+}
+
+#album img {
+    width: 250px;
+    border-radius: 15px;
+}
+
+#info {
+    margin-top: 15px;
+}
+</style>
 </head>
+
 <body>
 
-<h1>🎵 Better Hitster</h1>
+<div class="card">
+<h1>🎵 Hitster IL 🎵</h1>
 
 <a href="/login"><button>Login with Spotify</button></a>
 
 <br>
 
-<button onclick="play()">Play Random Song</button>
-<button onclick="reveal()">Reveal</button>
-<button onclick="play()">New Song</button>
+<button onclick="playSong()">▶️ New Song</button>
+<button onclick="reveal()">👀 Reveal</button>
+
+<div id="album">
+    <img id="cover">
+</div>
 
 <div id="info"></div>
+</div>
 
 <script>
-function play() {
+function playSong() {
+    document.getElementById("album").style.display = "none";
+    document.getElementById("info").innerHTML = "";
+
     fetch("/play")
+    .then(res => res.json())
+    .then(data => {
+        if (data.error) alert(data.error);
+    });
 }
 
 function reveal() {
     fetch("/reveal")
     .then(res => res.json())
     .then(data => {
+        if (data.error) return;
+
+        document.getElementById("cover").src = data.image;
+        document.getElementById("album").style.display = "block";
+
         document.getElementById("info").innerHTML = `
             <h2>${data.name}</h2>
-            <h3>${data.artist}</h3>
-            <h4>${data.year}</h4>
-            <img src="${data.album_image}">
+            <h3>🎤 ${data.artist}</h3>
+            <h1>📅 ${data.year}</h1>
         `;
     });
 }
