@@ -70,23 +70,43 @@ def login():
 # -----------------------------
 @app.get("/callback")
 def callback(code: str):
+    # token_res = requests.post(
+    #     "https://accounts.spotify.com/api/token",
+    #     data={
+    #         "grant_type": "authorization_code",
+    #         "code": code,
+    #         "redirect_uri": REDIRECT_URI,
+    #     },
+    #     auth=(CLIENT_ID, CLIENT_SECRET),
+    # ).json()
+
+    # sessions["user"] = {
+    #     "token": token_res["access_token"],
+    #     "current_song": None,
+    #     "buffer": get_playlist_tracks()
+    # }
+
+    # return RedirectResponse("/")
+
     token_res = requests.post(
-        "https://accounts.spotify.com/api/token",
-        data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": REDIRECT_URI,
-        },
-        auth=(CLIENT_ID, CLIENT_SECRET),
-    ).json()
-
-    sessions["user"] = {
-        "token": token_res["access_token"],
-        "current_song": None,
-        "buffer": get_playlist_tracks()
+    "https://accounts.spotify.com/api/token",
+    data={
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": REDIRECT_URI,
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+    },
+    headers={
+        "Content-Type": "application/x-www-form-urlencoded"
     }
+)
 
-    return RedirectResponse("/")
+print("STATUS:", token_res.status_code)
+print("TEXT:", token_res.text)
+
+return {"debug": token_res.text}
+
 
 
 # -----------------------------
@@ -158,3 +178,4 @@ def reveal():
         "year": song["album"]["release_date"][:4],
         "image": song["album"]["images"][0]["url"]
     }
+
