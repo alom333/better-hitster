@@ -1,77 +1,55 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Better-Hitster</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
+<title>Better-Hitster</title>
 <style>
 body {
-    margin:0;
-    background: linear-gradient(180deg,#121212,#1e1e1e);
-    font-family: 'Segoe UI', sans-serif;
-    color:white;
-    text-align:center;
+    background: #121212;
+    color: white;
+    font-family: 'Segoe UI';
+    text-align: center;
 }
 
 .card {
-    max-width:500px;
-    margin:60px auto;
-    padding:40px;
-    background:#1c1c1c;
-    border-radius:20px;
-    box-shadow:0 20px 50px rgba(0,0,0,0.7);
+    background: #1e1e1e;
+    max-width: 450px;
+    margin: 50px auto;
+    padding: 30px;
+    border-radius: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.6);
 }
 
 h1 {
-    color:#1DB954;
-    font-size:32px;
-    margin-bottom:20px;
+    color: #1DB954;
 }
 
 button {
-    background: linear-gradient(45deg,#1DB954,#1ed760);
-    border:none;
-    padding:14px 30px;
-    margin:10px;
-    border-radius:50px;
-    font-weight:bold;
-    font-size:16px;
-    cursor:pointer;
-    transition:0.2s;
+    background: linear-gradient(45deg, #1DB954, #1ed760);
+    border: none;
+    padding: 12px 25px;
+    margin: 10px;
+    border-radius: 50px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
 }
 
 button:hover {
-    transform:scale(1.05);
-}
-
-.secondary {
-    background:#333;
-    color:white;
+    transform: scale(1.05);
 }
 
 #album {
-    display:none;
-    margin-top:25px;
-    animation: fadeIn 0.4s ease-in;
+    margin-top: 20px;
+    display: none;
 }
 
 #album img {
-    width:260px;
-    border-radius:15px;
-    box-shadow:0 10px 30px rgba(0,0,0,0.8);
+    width: 250px;
+    border-radius: 15px;
 }
 
 #info {
-    margin-top:20px;
-}
-
-.hidden {
-    display:none;
-}
-
-@keyframes fadeIn {
-    from {opacity:0; transform:translateY(10px);}
-    to {opacity:1; transform:translateY(0);}
+    margin-top: 15px;
 }
 </style>
 </head>
@@ -79,78 +57,59 @@ button:hover {
 <body>
 
 <div class="card">
-    <h1>🎵 Better-Hitster</h1>
+<h1>🎵 Hitster IL 🎵</h1>
 
-    <!-- Login -->
-    <a href="/login" id="loginBtn">
-        <button>Login with Spotify</button>
-    </a>
+<a href="/login"><button>Login with Spotify</button></a>
 
-    <!-- Logout -->
-    <a href="/logout" id="logoutBtn" class="hidden">
-        <button class="secondary">Logout</button>
-    </a>
+<br>
 
-    <br>
+<button onclick="playSong()">▶️ New Song</button>
+<button onclick="reveal()">👀 Reveal</button>
 
-    <button onclick="playSong()">▶️ New Song</button>
-    <button onclick="reveal()">👀 Reveal</button>
+<div id="album">
+    <img id="cover">
+</div>
 
-    <div id="album">
-        <img id="cover">
-    </div>
-
-    <div id="info"></div>
+<div id="info"></div>
 </div>
 
 <script>
-
-// Check login state
-fetch("/me")
-.then(res => res.json())
-.then(data => {
-    if (data.logged_in) {
-        document.getElementById("loginBtn").classList.add("hidden");
-        document.getElementById("logoutBtn").classList.remove("hidden");
-    }
-});
-
 function playSong() {
-    document.getElementById("album").style.display="none";
-    document.getElementById("info").innerHTML="⌛ Loading...";
+    document.getElementById("album").style.display = "none";
+    document.getElementById("info").innerHTML = "⌛ Loading song...";
 
     fetch("/play")
     .then(res => res.json())
-    .then(data=>{
-        if(data.error){
-            alert(data.error);
-            document.getElementById("info").innerHTML="";
+    .then(data => {
+        if (data.error) {
+            alert("Play Error: " + data.error);
+            document.getElementById("info").innerHTML = "";
         } else {
-            document.getElementById("info").innerHTML="🎧 Playing... listen carefully!";
+            document.getElementById("info").innerHTML = "▶️ Playing! Listen closely...";
         }
-    });
+    })
+    .catch(err => console.error("Fetch error:", err));
 }
 
-function reveal(){
+function reveal() {
     fetch("/reveal")
-    .then(res=>res.json())
-    .then(data=>{
-        if(data.error){
-            alert(data.error);
+    .then(res => res.json())
+    .then(data => {
+        if (data.error) {
+            alert("Reveal Error: " + data.error);
             return;
         }
 
-        document.getElementById("cover").src=data.image;
-        document.getElementById("album").style.display="block";
+        document.getElementById("cover").src = data.image;
+        document.getElementById("album").style.display = "block";
 
-        document.getElementById("info").innerHTML=`
+        document.getElementById("info").innerHTML = `
             <h2>${data.name}</h2>
             <h3>🎤 ${data.artist}</h3>
             <h1>📅 ${data.year}</h1>
         `;
     });
 }
-
 </script>
 
 </body>
