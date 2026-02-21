@@ -3,58 +3,60 @@ import random
 import requests
 import base64
 from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from urllib.parse import urlencode
 
 app = FastAPI()
 templates = Jinja2Templates(directory="templates")
 
-# ==============================
-# ENV VARIABLES (Set in Render)
-# ==============================
 CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI")
 
-# IMPORTANT:
-# Only the playlist ID, NOT full URL
 PLAYLIST_ID = "6kA1H3sioFmZp03rmRF9t4"
 
-# Simple in-memory session
 sessions = {}
 
 
-# ==============================
-# Helper: Basic Auth Header
-# ==============================
 def get_basic_auth():
     auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
     return base64.b64encode(auth_str.encode()).decode()
 
 
-# ==============================
-# Get Playlist Tracks (USER TOKEN)
-# ==============================
+def refresh_access_token(refresh_token):
+    res = requests.post(
+        "https://accounts.spotify.com/api/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        },
+        headers={
+            "Authorization": f"Basic {get_basic_auth()}",
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
+        timeout=10
+    )
+    data = res.json()
+    return data.get("access_token")
+
+
 def get_playlist_tracks(user_token):
     headers = {"Authorization": f"Bearer {user_token}"}
     tracks = []
-    # Ensure this is the EXACT official URL format
     url = f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks?limit=100"
 
     print(f"--- Attempting to load playlist: {PLAYLIST_ID} ---")
-    
+
     while url:
         res = requests.get(url, headers=headers, timeout=10)
-        
+
         if res.status_code != 200:
-            # THIS PRINT IS KEY: It tells you if the token is expired or the ID is wrong
             print(f"❌ Spotify API Error {res.status_code}: {res.text}")
             return []
 
         data = res.json()
-        items = data.get("items", [])
-        
+
         for item in data.get("items", []):
             track = item.get("track")
             if track and track.get("uri"):
@@ -63,10 +65,10 @@ def get_playlist_tracks(user_token):
         url = data.get("next")
 
     if not tracks:
-        print("⚠️ Request succeeded, but 0 tracks were found. Is the playlist empty?")
+        print("⚠️ Request succeeded, but 0 tracks were found.")
     else:
         print(f"✅ Successfully loaded {len(tracks)} tracks.")
-        
+
     return tracks
 
 
@@ -83,14 +85,28 @@ def home(request: Request):
 
 
 # ==============================
-# Login
+# Auth status (fixes /me 404)
+# ==============================
+@app.get("/me")
+def me():
+    logged_in = "user" in sessions
+    return {"logged_in": logged_in}
+
+
+# ==============================
+# Login — ADD playlist-read-private + playlist-read-collaborative
 # ==============================
 @app.get("/login")
 def login():
     params = {
         "response_type": "code",
         "client_id": CLIENT_ID,
-        "scope": "user-modify-playback-state user-read-playback-state",
+        "scope": " ".join([
+            "user-modify-playback-state",
+            "user-read-playback-state",
+            "playlist-read-private",         # ← REQUIRED for private playlists
+            "playlist-read-collaborative"    # ← good to have
+        ]),
         "redirect_uri": REDIRECT_URI,
         "show_dialog": True
     }
@@ -99,7 +115,7 @@ def login():
 
 
 # ==============================
-# Callback
+# Callback — also store refresh_token
 # ==============================
 @app.get("/callback")
 def callback(code: str):
@@ -125,6 +141,7 @@ def callback(code: str):
 
     sessions["user"] = {
         "token": token_json["access_token"],
+        "refresh_token": token_json.get("refresh_token"),  # ← store refresh token
         "current_song": None,
         "buffer": []
     }
@@ -139,22 +156,29 @@ def callback(code: str):
 def play():
     user = sessions.get("user")
     if not user:
-        return {"error": "Not logged in"}
+        return JSONResponse({"error": "Not logged in"}, status_code=401)
 
     token = user["token"]
-    headers = {"Authorization": f"Bearer {token}"}
 
     # Load playlist if empty
     if not user["buffer"]:
         user["buffer"] = get_playlist_tracks(token)
 
+        # If still empty, try refreshing the token once
+        if not user["buffer"] and user.get("refresh_token"):
+            print("🔄 Trying token refresh...")
+            new_token = refresh_access_token(user["refresh_token"])
+            if new_token:
+                user["token"] = new_token
+                token = new_token
+                user["buffer"] = get_playlist_tracks(token)
+
     if not user["buffer"]:
-        return {"error": "Playlist is empty or could not be loaded."}
+        return JSONResponse({"error": "Playlist is empty or could not be loaded."}, status_code=500)
 
     song = random.choice(user["buffer"])
     user["current_song"] = song
 
-    # Play song
     play_res = requests.put(
         "https://api.spotify.com/v1/me/player/play",
         headers={
@@ -166,11 +190,11 @@ def play():
     )
 
     if play_res.status_code == 404:
-        return {"error": "No active device. Open Spotify on your phone."}
+        return JSONResponse({"error": "No active device. Open Spotify on your phone or desktop first."}, status_code=404)
 
     if play_res.status_code >= 400:
         print("❌ Play Error:", play_res.text)
-        return {"error": "Playback failed."}
+        return JSONResponse({"error": "Playback failed.", "details": play_res.text}, status_code=500)
 
     return {"status": "Playing"}
 
@@ -183,7 +207,7 @@ def reveal():
     user = sessions.get("user")
 
     if not user or not user["current_song"]:
-        return {"error": "No song playing"}
+        return JSONResponse({"error": "No song playing"}, status_code=400)
 
     song = user["current_song"]
 
@@ -202,6 +226,3 @@ def reveal():
 def logout():
     sessions.clear()
     return RedirectResponse("/")
-
-
-
