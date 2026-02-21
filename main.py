@@ -21,6 +21,24 @@ def get_auth_header():
     auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
     return base64.b64encode(auth_str.encode()).decode()
 
+def refresh_access_token(refresh_token):
+    """Use the refresh token to get a new access token."""
+    res = requests.post(
+        "https://accounts.spotify.com/api/token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        },
+        headers={"Authorization": f"Basic {get_auth_header()}"},
+    )
+    data = res.json()
+    new_token = data.get("access_token")
+    if new_token:
+        print("✅ Token refreshed successfully.")
+    else:
+        print(f"❌ Token refresh failed: {data}")
+    return new_token
+
 def get_playlist_tracks(token):
     if not token:
         print("❌ No token provided to get_playlist_tracks")
@@ -53,6 +71,34 @@ def get_playlist_tracks(token):
     except Exception as e:
         print(f"❌ Fatal Error in get_playlist_tracks: {e}")
         return []
+
+def get_valid_token():
+    """Returns a valid access token, refreshing if necessary."""
+    user = sessions.get("user")
+    if not user:
+        return None
+
+    # Try current token first
+    tracks = get_playlist_tracks(user["token"])
+    if tracks:
+        user["buffer"] = tracks
+        return user["token"]
+
+    # Token probably expired — try refreshing
+    print("🔄 Attempting token refresh...")
+    refresh_token = user.get("refresh_token")
+    if not refresh_token:
+        print("❌ No refresh token stored.")
+        return None
+
+    new_token = refresh_access_token(refresh_token)
+    if new_token:
+        user["token"] = new_token
+        tracks = get_playlist_tracks(new_token)
+        user["buffer"] = tracks
+        return new_token
+
+    return None
 
 @app.get("/")
 def home(request: Request):
@@ -91,6 +137,7 @@ def callback(code: str):
 
     token_json = token_res.json()
     access_token = token_json.get("access_token")
+    refresh_token = token_json.get("refresh_token")  # ← SAVE THIS
 
     if not access_token:
         print(f"AUTH ERROR: {token_json}")
@@ -100,10 +147,12 @@ def callback(code: str):
 
     sessions["user"] = {
         "token": access_token,
+        "refresh_token": refresh_token,  # ← STORE IT
         "current_song": None,
         "buffer": tracks
     }
 
+    print(f"🔑 Refresh token stored: {bool(refresh_token)}")
     return RedirectResponse(url="/")
 
 @app.get("/status")
@@ -119,15 +168,18 @@ def play():
     if not user:
         return {"error": "NOT_LOGGED_IN"}
 
-    headers = {"Authorization": f"Bearer {user['token']}"}
-
     try:
+        # Refill buffer if empty, auto-refreshing token if needed
         if not user.get("buffer"):
-            print("🔄 Buffer empty, refilling...")
-            user["buffer"] = get_playlist_tracks(user["token"])
+            print("🔄 Buffer empty, attempting refill with token refresh...")
+            token = get_valid_token()
+            if not token:
+                return {"error": "NOT_LOGGED_IN"}
 
         if not user["buffer"]:
             return {"error": "PLAYLIST_EMPTY"}
+
+        headers = {"Authorization": f"Bearer {user['token']}"}
 
         devices_res = requests.get("https://api.spotify.com/v1/me/player/devices", headers=headers).json()
         devices = devices_res.get("devices", [])
