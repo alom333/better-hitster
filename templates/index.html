@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Better-Hitster</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body {
+    margin:0;
+    background: linear-gradient(180deg,#121212,#1e1e1e);
+    font-family: 'Segoe UI', sans-serif;
+    color:white;
+    text-align:center;
+}
+
+.card {
+    max-width:500px;
+    margin:60px auto;
+    padding:40px;
+    background:#1c1c1c;
+    border-radius:20px;
+    box-shadow:0 20px 50px rgba(0,0,0,0.7);
+}
+
+h1 {
+    color:#1DB954;
+    font-size:32px;
+    margin-bottom:20px;
+}
+
+button {
+    background: linear-gradient(45deg,#1DB954,#1ed760);
+    border:none;
+    padding:14px 30px;
+    margin:10px;
+    border-radius:50px;
+    font-weight:bold;
+    font-size:16px;
+    cursor:pointer;
+    transition:0.2s;
+}
+
+button:hover {
+    transform:scale(1.05);
+}
+
+.secondary {
+    background:#333;
+    color:white;
+}
+
+#album {
+    display:none;
+    margin-top:25px;
+    animation: fadeIn 0.4s ease-in;
+}
+
+#album img {
+    width:260px;
+    border-radius:15px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.8);
+}
+
+#info {
+    margin-top:20px;
+}
+
+.hidden {
+    display:none;
+}
+
+@keyframes fadeIn {
+    from {opacity:0; transform:translateY(10px);}
+    to {opacity:1; transform:translateY(0);}
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+    <h1>🎵 Better-Hitster</h1>
+
+    <!-- Login -->
+    <a href="/login" id="loginBtn">
+        <button>Login with Spotify</button>
+    </a>
+
+    <!-- Logout -->
+    <a href="/logout" id="logoutBtn" class="hidden">
+        <button class="secondary">Logout</button>
+    </a>
+
+    <br>
+
+    <button onclick="playSong()">▶️ New Song</button>
+    <button onclick="reveal()">👀 Reveal</button>
+
+    <div id="album">
+        <img id="cover">
+    </div>
+
+    <div id="info"></div>
+</div>
+
+<script>
+
+// Check login state
+fetch("/me")
+.then(res => res.json())
+.then(data => {
+    if (data.logged_in) {
+        document.getElementById("loginBtn").classList.add("hidden");
+        document.getElementById("logoutBtn").classList.remove("hidden");
+    }
+});
+
+function playSong() {
+    document.getElementById("album").style.display="none";
+    document.getElementById("info").innerHTML="⌛ Loading...";
+
+    fetch("/play")
+    .then(res => res.json())
+    .then(data=>{
+        if(data.error){
+            alert(data.error);
+            document.getElementById("info").innerHTML="";
+        } else {
+            document.getElementById("info").innerHTML="🎧 Playing... listen carefully!";
+        }
+    });
+}
+
+function reveal(){
+    fetch("/reveal")
+    .then(res=>res.json())
+    .then(data=>{
+        if(data.error){
+            alert(data.error);
+            return;
+        }
+
+        document.getElementById("cover").src=data.image;
+        document.getElementById("album").style.display="block";
+
+        document.getElementById("info").innerHTML=`
+            <h2>${data.name}</h2>
+            <h3>🎤 ${data.artist}</h3>
+            <h1>📅 ${data.year}</h1>
+        `;
+    });
+}
+
+</script>
+
+</body>
+</html>
