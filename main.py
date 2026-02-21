@@ -13,7 +13,6 @@ templates = Jinja2Templates(directory="templates")
 CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI")
-# Ensure there are no spaces in your ID
 PLAYLIST_ID = "6kA1H3sioFmZp03rmRF9t4"
 
 sessions = {}
@@ -23,26 +22,16 @@ def get_auth_header():
     return base64.b64encode(auth_str.encode()).decode()
 
 def get_playlist_tracks(token):
-    # Using the absolute official Spotify API URL
+    # FIXED: Ensured the URL path is exactly correct
     url = f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks?limit=100"
     headers = {"Authorization": f"Bearer {token}"}
     
-    print(f"--- Attempting to fetch tracks for playlist {PLAYLIST_ID} ---")
     res = requests.get(url, headers=headers)
-    
     if res.status_code != 200:
-        print(f"❌ ERROR {res.status_code}: {res.text}")
         return []
     
     data = res.json()
-    tracks = []
-    for item in data.get("items", []):
-        t = item.get("track")
-        if t and t.get("uri"):
-            tracks.append(t)
-            
-    print(f"✅ Success! Loaded {len(tracks)} tracks.")
-    return tracks
+    return [item["track"] for item in data.get("items", []) if item.get("track") and item["track"].get("uri")]
 
 @app.get("/")
 def home(request: Request):
@@ -50,13 +39,10 @@ def home(request: Request):
 
 @app.get("/login")
 def login():
-    # Adding more scopes to ensure permission
     scopes = [
         "user-modify-playback-state",
         "user-read-playback-state",
-        "user-read-currently-playing",
-        "playlist-read-private",
-        "playlist-read-collaborative"
+        "playlist-read-private"
     ]
     params = {
         "response_type": "code",
@@ -70,74 +56,63 @@ def login():
 
 @app.get("/callback")
 def callback(code: str):
-    # Exchange code for token
     token_url = "https://accounts.spotify.com/api/token"
-    auth_header = get_auth_header()
-    
     res = requests.post(
         token_url,
-        data={
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": REDIRECT_URI,
-        },
-        headers={"Authorization": f"Basic {auth_header}"},
+        data={"grant_type": "authorization_code", "code": code, "redirect_uri": REDIRECT_URI},
+        headers={"Authorization": f"Basic {get_auth_header()}"},
     )
     
     token_json = res.json()
     access_token = token_json.get("access_token")
-    
-    if not access_token:
-        return {"error": "Auth failed", "details": token_json}
+    if not access_token: return {"error": "Auth failed"}
 
-    # Fetch tracks IMMEDIATELY using the new user token
-    tracks = get_playlist_tracks(access_token)
-    
     sessions["user"] = {
         "token": access_token,
         "current_song": None,
-        "buffer": tracks
+        "buffer": get_playlist_tracks(access_token)
     }
-    
     return RedirectResponse(url="/")
 
 @app.get("/play")
 def play():
     user = sessions.get("user")
     if not user: return {"error": "Not logged in"}
+    
     headers = {"Authorization": f"Bearer {user['token']}"}
     
-    # 1. Get all available devices
-    devices_res = requests.get("https://api.spotify.com/v1/me/player/devices", headers=headers).json()
-    devices = devices_res.get("devices", [])
+    # 1. Get Devices
+    dev_res = requests.get("https://api.spotify.com/v1/me/player/devices", headers=headers).json()
+    devices = dev_res.get("devices", [])
     if not devices:
-        return {"error": "Open Spotify on your phone first!"}
+        return {"error": "No active Spotify device found."}
 
-    # 2. Pick a device (prefer active, else take the first one)
-    active = [d for d in devices if d['is_active']]
-    device_id = active[0]['id'] if active else devices[0]['id']
+    # Pick a device (prefer active, else first available)
+    active_devs = [d for d in devices if d['is_active']]
+    device_id = active_devs[0]['id'] if active_devs else devices[0]['id']
 
-    # 3. FORCE WAKE UP the device (This stops the need to play a song manually)
-    requests.put(
-        "https://api.spotify.com/v1/me/player",
-        headers=headers,
-        json={"device_ids": [device_id], "play": True} # 'play': True wakes it up
-    )
-
-    # 4. Pick and Play the song
+    # 2. Select the random song
     if not user.get("buffer"):
         user["buffer"] = get_playlist_tracks(user["token"])
     
     song = random.choice(user["buffer"])
     user["current_song"] = song
 
-    requests.put(
-        f"https://api.spotify.com/v1/me/player/play?device_id={device_id}",
+    # 3. PLAY the song directly on that device
+    # We pass the device_id as a query parameter to the /play endpoint
+    # This is much more reliable than trying to 'wake up' the player separately
+    play_url = f"https://api.spotify.com/v1/me/player/play?device_id={device_id}"
+    
+    play_res = requests.put(
+        play_url,
         headers=headers,
         json={"uris": [song["uri"]]}
     )
+
+    if play_res.status_code > 204:
+        return {"error": "Playback failed", "details": play_res.text}
     
-    return {"status": "Playing"}
+    return {"status": "Playing", "song": song["name"]}
 
 @app.get("/reveal")
 def reveal():
