@@ -38,24 +38,28 @@ def get_basic_auth():
 # ==============================
 def get_playlist_tracks(user_token):
     headers = {"Authorization": f"Bearer {user_token}"}
-
     tracks = []
+    # Official Spotify API Endpoint
     url = f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks?limit=100"
 
     while url:
         res = requests.get(url, headers=headers, timeout=10)
-        data = res.json()
+        
+        if res.status_code != 200:
+            print(f"❌ API Error {res.status_code}: {res.text}")
+            break
 
+        data = res.json()
         if "items" not in data:
-            print("❌ Playlist error:", data)
-            return []
+            break
 
         for item in data["items"]:
             track = item.get("track")
-            if track and track.get("uri"):
+            # Filter out local files or null tracks
+            if track and track.get("uri") and not track.get("is_local"):
                 tracks.append(track)
 
-        url = data.get("next")
+        url = data.get("next")  # Spotify provides this for pagination
 
     print(f"✅ Loaded {len(tracks)} tracks.")
     return tracks
@@ -193,3 +197,4 @@ def reveal():
 def logout():
     sessions.clear()
     return RedirectResponse("/")
+
