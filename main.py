@@ -19,7 +19,7 @@ REDIRECT_URI = os.getenv("REDIRECT_URI")
 
 # IMPORTANT:
 # Only the playlist ID, NOT full URL
-PLAYLIST_ID = "YOUR_PLAYLIST_ID_HERE"
+PLAYLIST_ID = "6kA1H3sioFmZp03rmRF9t4"
 
 # Simple in-memory session
 sessions = {}
@@ -197,4 +197,5 @@ def reveal():
 def logout():
     sessions.clear()
     return RedirectResponse("/")
+
 
