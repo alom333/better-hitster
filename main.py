@@ -39,29 +39,34 @@ def get_basic_auth():
 def get_playlist_tracks(user_token):
     headers = {"Authorization": f"Bearer {user_token}"}
     tracks = []
-    # Official Spotify API Endpoint
+    # Ensure this is the EXACT official URL format
     url = f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks?limit=100"
 
+    print(f"--- Attempting to load playlist: {PLAYLIST_ID} ---")
+    
     while url:
         res = requests.get(url, headers=headers, timeout=10)
         
         if res.status_code != 200:
-            print(f"❌ API Error {res.status_code}: {res.text}")
-            break
+            # THIS PRINT IS KEY: It tells you if the token is expired or the ID is wrong
+            print(f"❌ Spotify API Error {res.status_code}: {res.text}")
+            return []
 
         data = res.json()
-        if "items" not in data:
-            break
-
-        for item in data["items"]:
+        items = data.get("items", [])
+        
+        for item in data.get("items", []):
             track = item.get("track")
-            # Filter out local files or null tracks
-            if track and track.get("uri") and not track.get("is_local"):
+            if track and track.get("uri"):
                 tracks.append(track)
 
-        url = data.get("next")  # Spotify provides this for pagination
+        url = data.get("next")
 
-    print(f"✅ Loaded {len(tracks)} tracks.")
+    if not tracks:
+        print("⚠️ Request succeeded, but 0 tracks were found. Is the playlist empty?")
+    else:
+        print(f"✅ Successfully loaded {len(tracks)} tracks.")
+        
     return tracks
 
 
@@ -197,5 +202,6 @@ def reveal():
 def logout():
     sessions.clear()
     return RedirectResponse("/")
+
 
 
