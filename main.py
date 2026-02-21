@@ -15,6 +15,7 @@ CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI") 
 
+# Your updated Playlist ID
 PLAYLIST_ID = "6kA1H3sioFmZp03rmRF9t4"
 sessions = {}
 
@@ -22,51 +23,43 @@ def get_auth_header():
     auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
     return base64.b64encode(auth_str.encode()).decode()
 
-def get_playlist_tracks():
-    if not CLIENT_ID or not CLIENT_SECRET:
-        print("❌ ERROR: CLIENT_ID or CLIENT_SECRET is None. Check Render Env Vars!")
+# FIXED: Now uses the User Token to avoid 403 Forbidden errors
+def get_playlist_tracks(token):
+    if not token:
+        print("❌ No token provided to get_playlist_tracks")
         return []
 
-    # 1. Get the Token
-    auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+    headers = {"Authorization": f"Bearer {token}"}
+    # Official Spotify tracks endpoint
+    tracks_url = f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks"
+    params = {
+        "limit": 50, 
+        "fields": "items(track(name,uri,artists,album(name,release_date,images)))"
+    }
     
     try:
-        token_res = requests.post(
-            "https://accounts.spotify.com/api/token",
-            data={"grant_type": "client_credentials"},
-            headers={"Authorization": f"Basic {auth_header}"},
-            timeout=10
-        )
-        token = token_res.json().get("access_token")
+        res = requests.get(tracks_url, headers=headers, params=params, timeout=10)
         
-        if not token:
-            print(f"❌ Token Error: {token_res.text}")
+        if res.status_code != 200:
+            print(f"❌ Playlist API Error: {res.status_code} - {res.text}")
             return []
 
-        # 2. Get the Tracks - Note the corrected URL structure
-        # We use the direct tracks endpoint
-        tracks_url = f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks"
-        params = {"limit": 50, "fields": "items(track(name,uri,artists,album(name,release_date,images)))"}
-        
-        res = requests.get(
-            tracks_url, 
-            headers={"Authorization": f"Bearer {token}"},
-            params=params,
-            timeout=10
-        )
-        
         data = res.json()
-        if "items" not in data:
-            print(f"❌ Playlist API Error: {data}")
-            return []
-
-        tracks = [i["track"] for i in data["items"] if i.get("track") and i["track"].get("uri")]
-        print(f"✅ Success! Loaded {len(tracks)} tracks.")
+        tracks = [
+            item["track"] for item in data.get("items", []) 
+            if item.get("track") and item["track"].get("uri")
+        ]
+        
+        print(f"✅ Success! Loaded {len(tracks)} tracks using user token.")
         return tracks
 
     except Exception as e:
         print(f"❌ Fatal Error in get_playlist_tracks: {e}")
         return []
+
+# -----------------------------
+# Routes
+# -----------------------------
 
 @app.get("/")
 def home(request: Request):
@@ -74,19 +67,26 @@ def home(request: Request):
 
 @app.get("/login")
 def login():
+    # Added playlist-read-private scope to ensure access
+    scopes = [
+        "user-modify-playback-state",
+        "user-read-playback-state",
+        "user-read-currently-playing",
+        "playlist-read-private"
+    ]
     params = {
         "response_type": "code",
         "client_id": CLIENT_ID,
-        "scope": "user-modify-playback-state user-read-playback-state user-read-currently-playing",
+        "scope": " ".join(scopes),
         "redirect_uri": REDIRECT_URI,
-        "show_dialog": True # Useful for debugging
+        "show_dialog": True 
     }
     url = "https://accounts.spotify.com/authorize?" + urlencode(params)
     return RedirectResponse(url)
 
 @app.get("/callback")
 def callback(code: str):
-    # Exchange code for Access Token
+    # Exchange code for User Access Token
     token_res = requests.post(
         "https://accounts.spotify.com/api/token",
         data={
@@ -98,16 +98,19 @@ def callback(code: str):
     )
 
     token_json = token_res.json()
+    access_token = token_json.get("access_token")
     
-    # If this fails, it will print in your Render logs
-    if "access_token" not in token_json:
+    if not access_token:
         print(f"AUTH ERROR: {token_json}")
         return {"error": "Auth failed", "details": token_json}
 
+    # Fetch tracks IMMEDIATELY using the new user token
+    tracks = get_playlist_tracks(access_token)
+
     sessions["user"] = {
-        "token": token_json["access_token"],
+        "token": access_token,
         "current_song": None,
-        "buffer": get_playlist_tracks()
+        "buffer": tracks
     }
 
     return RedirectResponse(url="/")
@@ -116,38 +119,49 @@ def callback(code: str):
 def play():
     user = sessions.get("user")
     if not user:
-        return {"error": "Not logged in"}
+        return {"error": "Not logged in. Please refresh and login again."}
 
-    # Use a try-except block so the "loading" state in JS doesn't stay forever
+    headers = {"Authorization": f"Bearer {user['token']}"}
+    
     try:
-        headers = {"Authorization": f"Bearer {user['token']}"}
-        
-        # 1. Check for tracks
+        # 1. Ensure the buffer isn't empty (refill if server restarted)
         if not user.get("buffer"):
-            user["buffer"] = get_playlist_tracks()
+            user["buffer"] = get_playlist_tracks(user["token"])
         
         if not user["buffer"]:
-            return {"error": "Playlist is empty or couldn't be loaded."}
+            return {"error": "Playlist is empty or inaccessible (403)."}
 
+        # 2. Find an active device
+        devices_res = requests.get("https://api.spotify.com/v1/me/player/devices", headers=headers).json()
+        devices = devices_res.get("devices", [])
+        
+        if not devices:
+            return {"error": "No active Spotify device. Open Spotify on your phone!"}
+
+        # Prefer the currently active device, else pick the first one
+        active_list = [d for d in devices if d['is_active']]
+        device_id = active_list[0]['id'] if active_list else devices[0]['id']
+
+        # 3. Pick a random song
         song = random.choice(user["buffer"])
         user["current_song"] = song
 
-        # 2. Play the song (with a short timeout)
-        play_res = requests.put(
-            "https://api.spotify.com/v1/me/player/play",
-            headers=headers,
-            json={"uris": [song["uri"]]},
-            timeout=5 
-        )
-
-        if play_res.status_code == 404:
-            return {"error": "No active device. Open Spotify on your phone!"}
+        # 4. Start Playback with a random start time to keep it secret
+        # Also targets the device_id to 'wake it up'
+        play_url = f"https://api.spotify.com/v1/me/player/play?device_id={device_id}"
+        
+        play_payload = {
+            "uris": [song["uri"]],
+            "position_ms": random.randint(30000, 70000) # Starts 30-70 seconds in
+        }
+        
+        requests.put(play_url, headers=headers, json=play_payload, timeout=5)
             
         return {"status": "Playing"}
 
     except Exception as e:
         print(f"Play error: {e}")
-        return {"error": "Server error while trying to play."}
+        return {"error": f"Server error: {e}"}
 
 @app.get("/reveal")
 def reveal():
@@ -162,6 +176,3 @@ def reveal():
         "year": song["album"]["release_date"][:4],
         "image": song["album"]["images"][0]["url"]
     }
-
-
-
