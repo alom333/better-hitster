@@ -13,38 +13,52 @@ templates = Jinja2Templates(directory="templates")
 CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI")
-
-PLAYLIST_ID = "1puQ0hv40TUre24cFillJS"
+PLAYLIST_ID = os.getenv("PLAYLIST_ID")
 
 sessions = {}
 
 
-def get_basic_auth():
-    auth_str = f"{CLIENT_ID}:{CLIENT_SECRET}"
-    return base64.b64encode(auth_str.encode()).decode()
+def basic_auth_header():
+    encoded = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+    return f"Basic {encoded}"
 
 
-def get_playlist_tracks(user_token):
-    headers = {"Authorization": f"Bearer {user_token}"}
+def fetch_all_playlist_tracks(token: str):
     tracks = []
     url = f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}/tracks?limit=100"
-    print(f"--- Attempting to load playlist: {PLAYLIST_ID} ---")
+    headers = {"Authorization": f"Bearer {token}"}
 
     while url:
         res = requests.get(url, headers=headers, timeout=10)
         if res.status_code != 200:
-            print(f"❌ Spotify API Error {res.status_code}: {res.text}")
+            print(f"[ERROR] Playlist fetch failed {res.status_code}: {res.text}")
             return []
         data = res.json()
         for item in data.get("items", []):
             track = item.get("track")
-            if track and track.get("uri"):
+            if track and track.get("id") and not track.get("is_local"):
                 tracks.append(track)
         url = data.get("next")
 
-    print(f"✅ Loaded {len(tracks)} tracks." if tracks else "⚠️ 0 tracks found.")
+    print(f"[INFO] Loaded {len(tracks)} tracks from playlist.")
     return tracks
 
+
+def refresh_token(refresh_tok: str):
+    res = requests.post(
+        "https://accounts.spotify.com/api/token",
+        data={"grant_type": "refresh_token", "refresh_token": refresh_tok},
+        headers={
+            "Authorization": basic_auth_header(),
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
+        timeout=10
+    )
+    data = res.json()
+    return data.get("access_token")
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/")
 def home(request: Request):
@@ -59,34 +73,54 @@ def me():
 
 @app.get("/login")
 def login():
+    scope = " ".join([
+        "streaming",
+        "user-read-email",
+        "user-read-private",
+        "user-modify-playback-state",
+        "user-read-playback-state",
+        "playlist-read-private",
+        "playlist-read-collaborative",
+    ])
     params = {
         "response_type": "code",
         "client_id": CLIENT_ID,
-        "scope": "user-modify-playback-state user-read-playback-state playlist-read-private playlist-read-collaborative",
+        "scope": scope,
         "redirect_uri": REDIRECT_URI,
-        "show_dialog": True
+        "show_dialog": True,
     }
     return RedirectResponse("https://accounts.spotify.com/authorize?" + urlencode(params))
 
 
 @app.get("/callback")
-def callback(code: str):
-    token_res = requests.post(
+def callback(code: str = None, error: str = None):
+    if error or not code:
+        return RedirectResponse("/?error=auth_denied")
+
+    res = requests.post(
         "https://accounts.spotify.com/api/token",
-        data={"grant_type": "authorization_code", "code": code, "redirect_uri": REDIRECT_URI},
-        headers={"Authorization": f"Basic {get_basic_auth()}", "Content-Type": "application/x-www-form-urlencoded"},
-        timeout=10
+        data={
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": REDIRECT_URI,
+        },
+        headers={
+            "Authorization": basic_auth_header(),
+            "Content-Type": "application/x-www-form-urlencoded",
+        },
+        timeout=10,
     )
-    token_json = token_res.json()
-    if "access_token" not in token_json:
-        print("❌ Auth Error:", token_json)
-        return JSONResponse({"error": "Authentication failed", "details": token_json}, status_code=400)
+    data = res.json()
+
+    if "access_token" not in data:
+        print(f"[ERROR] Token exchange failed: {data}")
+        return RedirectResponse("/?error=token_failed")
 
     sessions["user"] = {
-        "token": token_json["access_token"],
-        "refresh_token": token_json.get("refresh_token"),
-        "current_song": None,
-        "buffer": []
+        "token": data["access_token"],
+        "refresh_token": data.get("refresh_token"),
+        "tracks": [],
+        "current_track": None,
     }
     return RedirectResponse("/")
 
@@ -99,62 +133,59 @@ def play():
 
     token = user["token"]
 
-    if not user["buffer"]:
-        user["buffer"] = get_playlist_tracks(token)
+    # Load tracks if not loaded yet
+    if not user["tracks"]:
+        user["tracks"] = fetch_all_playlist_tracks(token)
 
-    if not user["buffer"]:
-        return JSONResponse({
-            "error": "Could not load playlist. Make sure your Spotify account email is added in the Developer Dashboard under User Management."
-        }, status_code=500)
+    # If still empty, try refreshing the token
+    if not user["tracks"] and user.get("refresh_token"):
+        new_token = refresh_token(user["refresh_token"])
+        if new_token:
+            user["token"] = new_token
+            token = new_token
+            user["tracks"] = fetch_all_playlist_tracks(token)
 
-    song = random.choice(user["buffer"])
-    user["current_song"] = song
+    if not user["tracks"]:
+        return JSONResponse({"error": "Could not load playlist. Check that your Spotify account is added to the app's User Management in the Spotify Developer Dashboard."}, status_code=500)
 
+    track = random.choice(user["tracks"])
+    user["current_track"] = track
+
+    # Start playback
     play_res = requests.put(
         "https://api.spotify.com/v1/me/player/play",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json={"uris": [song["uri"]]},
-        timeout=5
+        json={"uris": [track["uri"]]},
+        timeout=5,
     )
 
     if play_res.status_code == 404:
-        return JSONResponse({"error": "No active Spotify device found. Open Spotify on your phone or desktop first."}, status_code=404)
-    if play_res.status_code >= 400:
-        print("❌ Play Error:", play_res.text)
-        return JSONResponse({"error": "Playback failed.", "details": play_res.text}, status_code=500)
+        return JSONResponse({"error": "No active Spotify device. Open Spotify on your phone or desktop first, then try again."}, status_code=404)
 
-    return {"status": "Playing"}
+    if play_res.status_code == 403:
+        return JSONResponse({"error": "Spotify Premium is required for playback control."}, status_code=403)
+
+    if play_res.status_code >= 400:
+        print(f"[ERROR] Playback failed {play_res.status_code}: {play_res.text}")
+        return JSONResponse({"error": f"Playback failed: {play_res.text}"}, status_code=500)
+
+    return {"status": "playing"}
 
 
 @app.get("/reveal")
 def reveal():
     user = sessions.get("user")
-    if not user or not user["current_song"]:
-        return JSONResponse({"error": "No song playing"}, status_code=400)
+    if not user or not user.get("current_track"):
+        return JSONResponse({"error": "No track loaded"}, status_code=400)
 
-    song = user["current_song"]
+    track = user["current_track"]
+    images = track["album"].get("images", [])
+
     return {
-        "name": song["name"],
-        "artist": song["artists"][0]["name"],
-        "year": song["album"]["release_date"][:4],
-        "image": song["album"]["images"][0]["url"]
-    }
-
-
-@app.get("/debug")
-def debug():
-    user = sessions.get("user")
-    if not user:
-        return {"error": "Not logged in"}
-    token = user["token"]
-    me_res = requests.get("https://api.spotify.com/v1/me", headers={"Authorization": f"Bearer {token}"})
-    playlist_res = requests.get(f"https://api.spotify.com/v1/playlists/{PLAYLIST_ID}", headers={"Authorization": f"Bearer {token}"})
-    return {
-        "me_status": me_res.status_code,
-        "me_email": me_res.json().get("email"),
-        "playlist_status": playlist_res.status_code,
-        "playlist_name": playlist_res.json().get("name"),
-        "playlist_error": playlist_res.json().get("error")
+        "name": track["name"],
+        "artist": track["artists"][0]["name"],
+        "year": track["album"]["release_date"][:4],
+        "image": images[0]["url"] if images else None,
     }
 
 
