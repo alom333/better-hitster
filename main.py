@@ -14,7 +14,7 @@ CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI")
 
-PLAYLIST_ID = "6kA1H3sioFmZp03rmRF9t4"
+PLAYLIST_ID = "1puQ0hv40TUre24cFillJS"
 
 sessions = {}
 
@@ -226,3 +226,4 @@ def reveal():
 def logout():
     sessions.clear()
     return RedirectResponse("/")
+
