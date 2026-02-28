@@ -1,5 +1,3 @@
-fastapi
-uvicorn
-requests
-jinja2
-python-multipart
+flask==3.0.3
+requests==2.31.0
+gunicorn==22.0.0
