@@ -1,71 +1,106 @@
 import os
 import random
 import requests
+import urllib.parse
 from flask import Flask, redirect, request, session, jsonify, render_template
-from urllib.parse import urlencode
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24))
 
-SPOTIFY_CLIENT_ID     = os.environ.get("SPOTIFY_CLIENT_ID")
-SPOTIFY_CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
-REDIRECT_URI          = os.environ.get("REDIRECT_URI")
+CLIENT_ID     = os.environ.get("SPOTIFY_CLIENT_ID")
+CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
+REDIRECT_URI  = os.environ.get("REDIRECT_URI")
 
 SPOTIFY_AUTH_URL  = "https://accounts.spotify.com/authorize"
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
 SPOTIFY_API_BASE  = "https://api.spotify.com/v1"
+MB_API_BASE       = "https://musicbrainz.org/ws/2"
+MB_HEADERS        = {"User-Agent": "MusicTimeMachineApp/1.0 (contact@example.com)"}
 
-SCOPES = "user-read-playback-state user-modify-playback-state"
+YEAR_RANGE = (1940, 2025)
 
-YEAR_MIN = 1940
-YEAR_MAX = 2025
-HEBREW_CHANCE = 0.30
+# ─── Genre bias ────────────────────────────────────────────────
+# 0.0 = fully balanced  |  1.0 = always rock
+# Change this value to add a rock bias (e.g. 0.7 for strong rock)
+ROCK_BIAS = 0.0
+# ───────────────────────────────────────────────────────────────
 
-HEBREW_SEARCH_TERMS = [
-    "ישראלי", "עברית", "מוזיקה ישראלית",
-    "israeli pop", "israeli rock", "mizrahi", "mizrachit",
-]
 
+def sp_headers():
+    return {"Authorization": f"Bearer {session.get('access_token')}"}
+
+
+def try_refresh():
+    rt = session.get("refresh_token")
+    if not rt:
+        return False
+    r = requests.post(SPOTIFY_TOKEN_URL, data={
+        "grant_type":    "refresh_token",
+        "refresh_token": rt,
+        "client_id":     CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+    })
+    if r.ok:
+        session["access_token"] = r.json()["access_token"]
+        return True
+    return False
+
+
+def sp_get(url, **kwargs):
+    r = requests.get(url, headers=sp_headers(), **kwargs)
+    if r.status_code == 401 and try_refresh():
+        r = requests.get(url, headers=sp_headers(), **kwargs)
+    return r
+
+
+def sp_put(url, **kwargs):
+    hdrs = {**sp_headers(), "Content-Type": "application/json"}
+    r = requests.put(url, headers=hdrs, **kwargs)
+    if r.status_code == 401 and try_refresh():
+        r = requests.put(url, headers=hdrs, **kwargs)
+    return r
+
+
+# ── Routes ──────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", logged_in="access_token" in session)
 
 
 @app.route("/login")
 def login():
+    scope = (
+        "user-modify-playback-state "
+        "user-read-playback-state "
+        "user-read-email "
+        "user-read-private"
+    )
     params = {
-        "client_id":     SPOTIFY_CLIENT_ID,
+        "client_id":     CLIENT_ID,
         "response_type": "code",
         "redirect_uri":  REDIRECT_URI,
-        "scope":         SCOPES,
-        "show_dialog":   True,
+        "scope":         scope,
+        "show_dialog":   "true",
     }
-    return redirect(f"{SPOTIFY_AUTH_URL}?{urlencode(params)}")
+    return redirect(SPOTIFY_AUTH_URL + "?" + urllib.parse.urlencode(params))
 
 
 @app.route("/callback")
 def callback():
-    code  = request.args.get("code")
-    error = request.args.get("error")
-    if error or not code:
-        return redirect("/?error=access_denied")
-
-    resp = requests.post(
-        SPOTIFY_TOKEN_URL,
-        data={
-            "grant_type":    "authorization_code",
-            "code":          code,
-            "redirect_uri":  REDIRECT_URI,
-            "client_id":     SPOTIFY_CLIENT_ID,
-            "client_secret": SPOTIFY_CLIENT_SECRET,
-        },
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    if resp.status_code != 200:
-        return redirect("/?error=token_exchange_failed")
-
-    tokens = resp.json()
+    code = request.args.get("code")
+    if not code:
+        return redirect("/?error=auth_failed")
+    r = requests.post(SPOTIFY_TOKEN_URL, data={
+        "grant_type":   "authorization_code",
+        "code":          code,
+        "redirect_uri":  REDIRECT_URI,
+        "client_id":     CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+    })
+    if not r.ok:
+        return redirect("/?error=token_failed")
+    tokens = r.json()
     session["access_token"]  = tokens["access_token"]
     session["refresh_token"] = tokens.get("refresh_token")
     return redirect("/")
@@ -77,195 +112,97 @@ def logout():
     return redirect("/")
 
 
-def refresh_access_token():
-    rt = session.get("refresh_token")
-    if not rt:
-        return False
-    resp = requests.post(
-        SPOTIFY_TOKEN_URL,
-        data={
-            "grant_type":    "refresh_token",
-            "refresh_token": rt,
-            "client_id":     SPOTIFY_CLIENT_ID,
-            "client_secret": SPOTIFY_CLIENT_SECRET,
-        },
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
-    if resp.status_code == 200:
-        tokens = resp.json()
-        session["access_token"] = tokens["access_token"]
-        if "refresh_token" in tokens:
-            session["refresh_token"] = tokens["refresh_token"]
-        return True
-    return False
+@app.route("/api/random-song")
+def random_song():
+    if "access_token" not in session:
+        return jsonify({"error": "not_logged_in"}), 401
 
+    for _attempt in range(6):
+        year = random.randint(*YEAR_RANGE)
+        use_rock = ROCK_BIAS > 0 and random.random() < ROCK_BIAS
+        genre_tag = " tag:rock" if use_rock else ""
+        offset = random.randint(0, 300)
 
-def auth_headers():
-    return {"Authorization": f"Bearer {session['access_token']}"}
-
-
-def spotify_get(endpoint, params=None):
-    resp = requests.get(f"{SPOTIFY_API_BASE}{endpoint}", headers=auth_headers(), params=params)
-    if resp.status_code == 401 and refresh_access_token():
-        resp = requests.get(f"{SPOTIFY_API_BASE}{endpoint}", headers=auth_headers(), params=params)
-    return resp
-
-
-def spotify_put(endpoint, body=None):
-    resp = requests.put(
-        f"{SPOTIFY_API_BASE}{endpoint}",
-        headers={**auth_headers(), "Content-Type": "application/json"},
-        json=body,
-    )
-    if resp.status_code == 401 and refresh_access_token():
-        resp = requests.put(
-            f"{SPOTIFY_API_BASE}{endpoint}",
-            headers={**auth_headers(), "Content-Type": "application/json"},
-            json=body,
-        )
-    return resp
-
-
-def spotify_post(endpoint, body=None):
-    resp = requests.post(
-        f"{SPOTIFY_API_BASE}{endpoint}",
-        headers={**auth_headers(), "Content-Type": "application/json"},
-        json=body,
-    )
-    if resp.status_code == 401 and refresh_access_token():
-        resp = requests.post(
-            f"{SPOTIFY_API_BASE}{endpoint}",
-            headers={**auth_headers(), "Content-Type": "application/json"},
-            json=body,
-        )
-    return resp
-
-
-def search_songs(year, hebrew=False):
-    candidates = []
-
-    if hebrew:
-        term  = random.choice(HEBREW_SEARCH_TERMS)
-        query = f"{term} year:{year}"
-        offsets = [0, 20, 40]
-    else:
-        query   = f"year:{year}"
-        offsets = [0, 20, 40, 60, 80]
-
-    for offset in offsets:
-        resp = spotify_get("/search", params={
-            "q":      query,
-            "type":   "track",
-            "limit":  50,
+        mb = requests.get(f"{MB_API_BASE}/recording", headers=MB_HEADERS, params={
+            "query":  f"date:{year}{genre_tag}",
+            "limit":  100,
             "offset": offset,
-            "market": "IL",
+            "fmt":    "json",
         })
-        if resp.status_code != 200:
+        if not mb.ok:
             continue
 
-        tracks = resp.json().get("tracks", {}).get("items", [])
-        for t in tracks:
-            if not t or not t.get("id"):
+        recordings = mb.json().get("recordings", [])
+        valid = [r for r in recordings if r.get("artist-credit") and r.get("title")]
+        if not valid:
+            continue
+
+        random.shuffle(valid)
+        for rec in valid[:12]:
+            artist = rec["artist-credit"][0]["artist"]["name"]
+            title  = rec["title"]
+
+            sp = sp_get(f"{SPOTIFY_API_BASE}/search", params={
+                "q":     f"track:{title} artist:{artist}",
+                "type":  "track",
+                "limit": 3,
+            })
+            if not sp.ok:
                 continue
-            release    = t.get("album", {}).get("release_date", "")
-            track_year = release[:4] if release else ""
-            if track_year != str(year):
+            items = sp.json().get("tracks", {}).get("items", [])
+            if not items:
                 continue
-            if not hebrew and t.get("popularity", 0) < 20:
-                continue
-            candidates.append(t)
 
-        if len(candidates) >= 20:
-            break
+            track     = items[0]
+            track_uri = track["uri"]
+            sp_artist = track["artists"][0]["name"]
+            sp_title  = track["name"]
+            album_art = track["album"]["images"][0]["url"] if track["album"]["images"] else None
+            release   = track["album"].get("release_date", str(year))
+            sp_year   = release[:4] if release else str(year)
 
-    return candidates
+            play = sp_put(
+                f"{SPOTIFY_API_BASE}/me/player/play",
+                json={"uris": [track_uri]},
+            )
 
+            return jsonify({
+                "year":        sp_year,
+                "artist":      sp_artist,
+                "title":       sp_title,
+                "album_art":   album_art,
+                "track_uri":   track_uri,
+                "played":      play.status_code in [200, 204],
+                "play_status": play.status_code,
+            })
 
-def format_track(t, year):
-    album  = t.get("album", {})
-    images = album.get("images", [])
-    return {
-        "id":          t["id"],
-        "uri":         t["uri"],
-        "name":        t["name"],
-        "artists":     [a["name"] for a in t.get("artists", [])],
-        "album":       album.get("name", ""),
-        "album_image": images[0]["url"] if images else None,
-        "year":        str(year),
-    }
-
-
-@app.route("/api/status")
-def status():
-    if "access_token" not in session:
-        return jsonify({"logged_in": False})
-    resp = spotify_get("/me")
-    if resp.status_code != 200:
-        session.clear()
-        return jsonify({"logged_in": False})
-    return jsonify({"logged_in": True, "display_name": resp.json().get("display_name", "")})
-
-
-@app.route("/api/play_random")
-def play_random():
-    if "access_token" not in session:
-        return jsonify({"error": "Not logged in"}), 401
-
-    last_id  = session.get("last_track_id")
-    hebrew   = random.random() < HEBREW_CHANCE
-    year     = random.randint(YEAR_MIN, YEAR_MAX)
-
-    # Try up to 5 different years if search comes up empty
-    candidates = []
-    for _ in range(5):
-        candidates = search_songs(year, hebrew=hebrew)
-        if candidates:
-            break
-        year = random.randint(YEAR_MIN, YEAR_MAX)
-
-    if not hebrew and not candidates:
-        candidates = search_songs(year, hebrew=False)
-
-    if not candidates:
-        return jsonify({"error": "Could not find songs. Please try again."}), 500
-
-    pool  = [t for t in candidates if t["id"] != last_id] if len(candidates) > 1 else candidates
-    track = random.choice(pool)
-    session["last_track_id"] = track["id"]
-
-    # Get devices
-    resp    = spotify_get("/me/player/devices")
-    devices = resp.json().get("devices", []) if resp.status_code == 200 else []
-    if not devices:
-        return jsonify({"error": "No active Spotify device found. Open Spotify on your phone or desktop first."}), 404
-
-    device    = next((d for d in devices if d.get("is_active")), devices[0])
-    play_resp = spotify_put(f"/me/player/play?device_id={device['id']}", {"uris": [track["uri"]]})
-
-    if play_resp.status_code not in (200, 204):
-        return jsonify({"error": f"Could not start playback (status {play_resp.status_code}). Make sure Spotify is open."}), 500
-
-    return jsonify({"success": True, "track": format_track(track, year)})
+    return jsonify({"error": "could_not_find_song"}), 500
 
 
 @app.route("/api/pause", methods=["POST"])
 def pause():
     if "access_token" not in session:
-        return jsonify({"error": "Not logged in"}), 401
-    resp = spotify_put("/me/player/pause")
-    if resp.status_code in (200, 204):
-        return jsonify({"success": True, "state": "paused"})
-    return jsonify({"error": "Could not pause"}), 500
+        return jsonify({"error": "not_logged_in"}), 401
+    r = sp_put(f"{SPOTIFY_API_BASE}/me/player/pause")
+    return jsonify({"status": r.status_code})
 
 
 @app.route("/api/resume", methods=["POST"])
 def resume():
     if "access_token" not in session:
-        return jsonify({"error": "Not logged in"}), 401
-    resp = spotify_put("/me/player/play")
-    if resp.status_code in (200, 204):
-        return jsonify({"success": True, "state": "playing"})
-    return jsonify({"error": "Could not resume"}), 500
+        return jsonify({"error": "not_logged_in"}), 401
+    r = sp_put(f"{SPOTIFY_API_BASE}/me/player/play")
+    return jsonify({"status": r.status_code})
+
+
+@app.route("/api/playback-state")
+def playback_state():
+    if "access_token" not in session:
+        return jsonify({"error": "not_logged_in"}), 401
+    r = sp_get(f"{SPOTIFY_API_BASE}/me/player")
+    if r.status_code == 204 or not r.text:
+        return jsonify({"is_playing": False, "no_device": True})
+    return jsonify(r.json())
 
 
 if __name__ == "__main__":
