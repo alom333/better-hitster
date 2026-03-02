@@ -22,7 +22,7 @@ YEAR_RANGE = (1940, 2025)
 # ─── Genre bias ────────────────────────────────────────────────
 # 0.0 = fully balanced  |  1.0 = always rock
 # Change this value to add a rock bias (e.g. 0.7 for strong rock)
-ROCK_BIAS = 0.0
+ROCK_BIAS = 0.7
 # ───────────────────────────────────────────────────────────────
 
 
@@ -112,6 +112,9 @@ def logout():
     return redirect("/")
 
 
+LASTFM_API_BASE = "http://ws.audioscrobbler.com/2.0/"
+LASTFM_API_KEY  = os.environ.get("05f3bb37e8390c0d24878a5540033618")
+
 @app.route("/api/random-song")
 def random_song():
     if "access_token" not in session:
@@ -120,28 +123,36 @@ def random_song():
     for _attempt in range(6):
         year = random.randint(*YEAR_RANGE)
         use_rock = ROCK_BIAS > 0 and random.random() < ROCK_BIAS
-        genre_tag = " tag:rock" if use_rock else ""
-        offset = random.randint(0, 300)
+        tag = "rock" if use_rock else random.choice([
+            "pop", "rock", "soul", "jazz", "country", "rnb", "classic rock", "folk", "disco", "punk"
+        ])
 
-        mb = requests.get(f"{MB_API_BASE}/recording", headers=MB_HEADERS, params={
-            "query":  f"date:{year}{genre_tag}",
-            "limit":  100,
-            "offset": offset,
-            "fmt":    "json",
-        })
-        if not mb.ok:
+        # Get top tracks for this tag from Last.fm
+        lfm = requests.get(LASTFM_API_BASE, params={
+            "method":  "tag.gettoptracks",
+            "tag":     tag,
+            "api_key": LASTFM_API_KEY,
+            "format":  "json",
+            "limit":   100,
+            "page":    random.randint(1, 5),
+        }, timeout=10)
+
+        if not lfm.ok:
             continue
 
-        recordings = mb.json().get("recordings", [])
-        valid = [r for r in recordings if r.get("artist-credit") and r.get("title")]
-        if not valid:
+        tracks = lfm.json().get("tracks", {}).get("track", [])
+        if not tracks:
             continue
 
-        random.shuffle(valid)
-        for rec in valid[:12]:
-            artist = rec["artist-credit"][0]["artist"]["name"]
-            title  = rec["title"]
+        random.shuffle(tracks)
 
+        for t in tracks[:10]:
+            artist = t.get("artist", {}).get("name", "")
+            title  = t.get("name", "")
+            if not artist or not title:
+                continue
+
+            # Search Spotify for this track
             sp = sp_get(f"{SPOTIFY_API_BASE}/search", params={
                 "q":     f"track:{title} artist:{artist}",
                 "type":  "track",
@@ -160,6 +171,10 @@ def random_song():
             album_art = track["album"]["images"][0]["url"] if track["album"]["images"] else None
             release   = track["album"].get("release_date", str(year))
             sp_year   = release[:4] if release else str(year)
+
+            # Only keep if year falls in range
+            if not (YEAR_RANGE[0] <= int(sp_year) <= YEAR_RANGE[1]):
+                continue
 
             play = sp_put(
                 f"{SPOTIFY_API_BASE}/me/player/play",
