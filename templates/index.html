@@ -3,668 +3,383 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Song Roulette</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <title>🎵 Music Time Machine</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;900&display=swap" rel="stylesheet"/>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
-      --yellow:  #FFE14D;
-      --pink:    #FF6B9D;
-      --green:   #00D47E;
-      --blue:    #4D9FFF;
-      --orange:  #FF8C42;
-      --purple:  #B57BFF;
-      --bg:      #0F0F0F;
-      --surface: #1A1A1A;
-      --border:  #2A2A2A;
-      --text:    #F5F5F5;
-      --muted:   #777;
+      --pink:   #ff4daa;
+      --yellow: #ffe94d;
+      --cyan:   #4dffee;
+      --purple: #a855f7;
+      --green:  #4dff91;
+      --orange: #ff7c4d;
+      --bg:     #0a0a14;
+      --card:   #12121f;
+      --border: rgba(255,255,255,0.08);
     }
-
-    html, body {
-      min-height: 100%;
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'DM Sans', sans-serif;
-      font-weight: 300;
-    }
-
-    /* animated gradient bg blobs */
-    body::before, body::after {
-      content: '';
-      position: fixed;
-      border-radius: 50%;
-      filter: blur(80px);
-      opacity: 0.12;
-      pointer-events: none;
-      z-index: 0;
-      animation: drift 12s ease-in-out infinite alternate;
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family:'Outfit',sans-serif; background:var(--bg); color:#fff;
+      min-height:100vh; display:flex; flex-direction:column;
+      align-items:center; justify-content:center; overflow-x:hidden;
     }
     body::before {
-      width: 500px; height: 500px;
-      background: var(--pink);
-      top: -150px; left: -150px;
+      content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+      background:
+        radial-gradient(ellipse 60% 40% at 20% 20%, rgba(168,85,247,.18) 0%,transparent 70%),
+        radial-gradient(ellipse 50% 50% at 80% 80%, rgba(255,77,170,.15) 0%,transparent 70%),
+        radial-gradient(ellipse 40% 60% at 60% 10%, rgba(77,255,238,.10) 0%,transparent 70%);
     }
-    body::after {
-      width: 400px; height: 400px;
-      background: var(--blue);
-      bottom: -100px; right: -100px;
-      animation-delay: -6s;
+    .stars {
+      position:fixed; inset:0; z-index:0; pointer-events:none;
+      background-image:
+        radial-gradient(1px 1px at 15% 25%,rgba(255,255,255,.6) 0%,transparent 100%),
+        radial-gradient(1px 1px at 45% 10%,rgba(255,255,255,.5) 0%,transparent 100%),
+        radial-gradient(1px 1px at 75% 35%,rgba(255,255,255,.7) 0%,transparent 100%),
+        radial-gradient(1px 1px at 90% 15%,rgba(255,255,255,.4) 0%,transparent 100%),
+        radial-gradient(1px 1px at 30% 70%,rgba(255,255,255,.5) 0%,transparent 100%),
+        radial-gradient(1px 1px at 60% 80%,rgba(255,255,255,.6) 0%,transparent 100%),
+        radial-gradient(1.5px 1.5px at 5% 90%,rgba(255,255,255,.5) 0%,transparent 100%),
+        radial-gradient(1.5px 1.5px at 55% 55%,rgba(255,255,255,.3) 0%,transparent 100%),
+        radial-gradient(1px 1px at 70% 5%,rgba(255,255,255,.6) 0%,transparent 100%);
     }
-    @keyframes drift {
-      from { transform: translate(0, 0) scale(1); }
-      to   { transform: translate(40px, 30px) scale(1.1); }
-    }
-
-    body {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 24px;
-      position: relative;
-    }
-
     .container {
-      position: relative;
-      z-index: 1;
-      width: 100%;
-      max-width: 400px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+      position:relative; z-index:1;
+      width:100%; max-width:520px;
+      padding:2rem 1.5rem;
+      display:flex; flex-direction:column; align-items:center; gap:1.8rem;
     }
-
-    /* ── Header ── */
-    .header {
-      text-align: center;
-      margin-bottom: 36px;
-    }
-
+    .header { text-align:center; }
     .header h1 {
-      font-family: 'Syne', sans-serif;
-      font-weight: 800;
-      font-size: clamp(2.6rem, 10vw, 3.8rem);
-      line-height: 0.95;
-      letter-spacing: -0.03em;
+      font-size:2.6rem; font-weight:900; line-height:1.1; margin-bottom:.4rem;
+      background:linear-gradient(135deg,var(--pink),var(--yellow),var(--cyan));
+      -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+      filter:drop-shadow(0 0 20px rgba(255,77,170,.4));
     }
+    .header p { color:rgba(255,255,255,.5); font-size:1rem; }
 
-    .header h1 .word1 { color: var(--yellow); }
-    .header h1 .word2 { color: var(--text); }
-
-    .header p {
-      margin-top: 12px;
-      font-size: 0.85rem;
-      color: var(--muted);
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
+    /* Vinyl */
+    .vinyl-wrap { position:relative; width:220px; height:220px; display:flex; align-items:center; justify-content:center; }
+    .vinyl {
+      width:220px; height:220px; border-radius:50%;
+      background:radial-gradient(circle at 50% 50%,#222 0%,#111 30%,#1a1a1a 31%,#0d0d0d 35%,
+        #1a1a1a 36%,#111 45%,#1a1a1a 46%,#0d0d0d 55%,#1a1a1a 56%,#111 100%);
+      box-shadow:0 0 0 3px rgba(255,255,255,.05),0 0 40px rgba(168,85,247,.3),inset 0 0 30px rgba(0,0,0,.5);
+      animation:spin 4s linear infinite; animation-play-state:paused; position:relative;
+      transition:box-shadow .3s;
     }
-
-    /* ── Card ── */
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 28px;
-      width: 100%;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
+    .vinyl.playing {
+      animation-play-state:running;
+      box-shadow:0 0 0 3px rgba(255,255,255,.08),0 0 60px rgba(255,77,170,.5),0 0 120px rgba(168,85,247,.2),inset 0 0 30px rgba(0,0,0,.5);
     }
+    .vinyl::after {
+      content:''; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+      width:60px; height:60px; border-radius:50%;
+      background:radial-gradient(circle,#333 0%,#1a1a1a 100%);
+      border:2px solid rgba(255,255,255,.1);
+    }
+    .vinyl-art {
+      position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+      width:80px; height:80px; border-radius:50%; object-fit:cover; z-index:2;
+      border:3px solid rgba(255,255,255,.2); opacity:0; transition:opacity .5s;
+    }
+    .vinyl-art.visible { opacity:1; }
+    @keyframes spin { to { transform:rotate(360deg); } }
 
-    /* ── Buttons ── */
+    /* Reveal card */
+    .reveal-card {
+      width:100%; background:var(--card); border:1px solid var(--border);
+      border-radius:20px; padding:1.5rem;
+      display:flex; gap:1.2rem; align-items:center;
+      opacity:0; transform:translateY(20px) scale(.97);
+      transition:opacity .4s,transform .4s; pointer-events:none;
+    }
+    .reveal-card.visible { opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
+    .reveal-album { width:90px; height:90px; border-radius:12px; object-fit:cover; flex-shrink:0; border:2px solid rgba(255,255,255,.1); }
+    .reveal-info  { flex:1; min-width:0; }
+    .reveal-year  {
+      font-size:3rem; font-weight:900; line-height:1;
+      background:linear-gradient(135deg,var(--yellow),var(--orange));
+      -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text;
+      filter:drop-shadow(0 0 10px rgba(255,233,77,.5));
+    }
+    .reveal-title  { font-size:1.1rem; font-weight:700; color:#fff; margin-top:.3rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .reveal-artist { font-size:.9rem; color:rgba(255,255,255,.55); margin-top:.15rem; }
+
+    /* Buttons */
+    .buttons { width:100%; display:grid; grid-template-columns:1fr 1fr; gap:.9rem; }
     .btn {
-      width: 100%;
-      padding: 16px 20px;
-      border-radius: 12px;
-      border: none;
-      font-family: 'Syne', sans-serif;
-      font-size: 1rem;
-      font-weight: 700;
-      cursor: pointer;
-      transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      letter-spacing: 0.01em;
-      position: relative;
-      overflow: hidden;
+      border:none; cursor:pointer; border-radius:14px;
+      font-family:'Outfit',sans-serif; font-size:1rem; font-weight:700;
+      padding:.85rem 1rem; letter-spacing:.01em;
+      transition:transform .15s,box-shadow .15s,opacity .2s;
+      display:flex; align-items:center; justify-content:center; gap:.5rem;
+      position:relative; overflow:hidden;
     }
+    .btn:hover:not(:disabled) { transform:translateY(-2px); }
+    .btn:active:not(:disabled) { transform:translateY(0); }
+    .btn:disabled { opacity:.35; cursor:not-allowed; }
+    .btn::before { content:''; position:absolute; inset:0; background:rgba(255,255,255,.12); opacity:0; transition:opacity .15s; }
+    .btn:hover:not(:disabled)::before { opacity:1; }
 
-    .btn:active:not(:disabled) { transform: scale(0.97); }
-    .btn:disabled { opacity: 0.35; cursor: not-allowed; }
-
-    .btn-spotify {
-      background: var(--yellow);
-      color: #0F0F0F;
-      box-shadow: 0 4px 20px rgba(255,225,77,0.3);
+    .btn-login {
+      background:linear-gradient(135deg,#1db954,#1aa34a); color:#fff;
+      box-shadow:0 4px 20px rgba(29,185,84,.35); grid-column:1/-1;
     }
-    .btn-spotify:hover:not(:disabled) {
-      box-shadow: 0 6px 28px rgba(255,225,77,0.45);
-      transform: translateY(-1px);
+    .btn-login:hover:not(:disabled) { box-shadow:0 6px 30px rgba(29,185,84,.5); }
+
+    .btn-logout {
+      background:rgba(255,255,255,.08); color:rgba(255,255,255,.6);
+      border:1px solid rgba(255,255,255,.12); font-size:.8rem;
+      padding:.5rem 1rem; border-radius:999px; grid-column:1/-1;
+      width:fit-content; margin:0 auto;
     }
 
     .btn-new {
-      background: var(--pink);
-      color: #fff;
-      box-shadow: 0 4px 20px rgba(255,107,157,0.3);
+      background:linear-gradient(135deg,var(--purple),var(--pink)); color:#fff;
+      box-shadow:0 4px 20px rgba(168,85,247,.35);
     }
-    .btn-new:hover:not(:disabled) {
-      box-shadow: 0 6px 28px rgba(255,107,157,0.45);
-      transform: translateY(-1px);
+    .btn-new:hover:not(:disabled) { box-shadow:0 6px 30px rgba(255,77,170,.5); }
+
+    .btn-reveal {
+      background:linear-gradient(135deg,var(--yellow),var(--orange)); color:#0a0a14;
+      box-shadow:0 4px 20px rgba(255,233,77,.3);
+    }
+    .btn-reveal:hover:not(:disabled) { box-shadow:0 6px 30px rgba(255,124,77,.5); }
+    .btn-reveal.revealed {
+      background:linear-gradient(135deg,rgba(255,233,77,.2),rgba(255,124,77,.2));
+      color:var(--yellow); border:1px solid rgba(255,233,77,.3); box-shadow:none;
     }
 
     .btn-pause {
-      background: var(--orange);
-      color: #fff;
-      box-shadow: 0 4px 20px rgba(255,140,66,0.3);
+      background:var(--card); color:var(--cyan);
+      border:1px solid rgba(77,255,238,.3); box-shadow:0 4px 20px rgba(77,255,238,.1);
+      grid-column:1/-1;
     }
-    .btn-pause:hover:not(:disabled) {
-      box-shadow: 0 6px 28px rgba(255,140,66,0.45);
-      transform: translateY(-1px);
-    }
-    .btn-pause.is-paused {
-      background: var(--green);
-      box-shadow: 0 4px 20px rgba(0,212,126,0.3);
-    }
-    .btn-pause.is-paused:hover:not(:disabled) {
-      box-shadow: 0 6px 28px rgba(0,212,126,0.45);
-    }
+    .btn-pause:hover:not(:disabled) { background:rgba(77,255,238,.08); box-shadow:0 6px 30px rgba(77,255,238,.25); }
 
-    .btn-reveal {
-      background: var(--purple);
-      color: #fff;
-      box-shadow: 0 4px 20px rgba(181,123,255,0.3);
-    }
-    .btn-reveal:hover:not(:disabled) {
-      box-shadow: 0 6px 28px rgba(181,123,255,0.45);
-      transform: translateY(-1px);
-    }
+    .pause-bar  { width:4px; height:18px; border-radius:2px; background:var(--cyan); }
+    .pause-icon { display:flex; gap:3px; align-items:center; }
+    .play-icon  { display:flex; align-items:center; }
+    .play-triangle { width:0; height:0; border-top:9px solid transparent; border-bottom:9px solid transparent; border-left:16px solid var(--cyan); }
 
-    .btn-logout {
-      background: transparent;
-      color: var(--muted);
-      border: 1.5px solid var(--border);
-      font-family: 'DM Sans', sans-serif;
-      font-size: 0.82rem;
-      font-weight: 400;
-      padding: 11px 20px;
-    }
-    .btn-logout:hover:not(:disabled) { color: var(--text); border-color: #555; }
+    .status { min-height:1.4rem; font-size:.85rem; color:rgba(255,255,255,.4); text-align:center; transition:color .3s; }
+    .status.error   { color:#ff6b6b; }
+    .status.success { color:var(--green); }
+    .status.loading { color:var(--cyan); }
 
-    /* ── Divider ── */
-    .divider {
-      height: 1px;
-      background: var(--border);
-      margin: 4px 0;
-    }
+    .spinner { width:18px; height:18px; border-radius:50%; border:2px solid rgba(255,255,255,.3); border-top-color:#fff; animation:rotate .7s linear infinite; }
+    @keyframes rotate { to { transform:rotate(360deg); } }
 
-    /* ── Status row ── */
-    .status-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.8rem;
-      color: var(--muted);
-      justify-content: center;
+    .device-warning {
+      background:rgba(255,124,77,.1); border:1px solid rgba(255,124,77,.3);
+      border-radius:12px; padding:.8rem 1rem; font-size:.85rem;
+      color:var(--orange); text-align:center; display:none;
     }
-    .status-dot {
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      background: var(--green);
-      box-shadow: 0 0 6px var(--green);
-      flex-shrink: 0;
-    }
+    .device-warning.visible { display:block; }
 
-    /* ── Now playing bar ── */
-    .now-playing {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 0.78rem;
-      color: var(--muted);
-      justify-content: center;
-      min-height: 20px;
-    }
-    .bars {
-      display: flex;
-      align-items: flex-end;
-      gap: 2px;
-      height: 14px;
-    }
-    .bars span {
-      display: block;
-      width: 3px;
-      background: var(--green);
-      border-radius: 2px;
-      animation: barBounce 0.8s ease-in-out infinite alternate;
-    }
-    .bars span:nth-child(1) { height: 6px;  animation-delay: 0s; }
-    .bars span:nth-child(2) { height: 12px; animation-delay: 0.15s; }
-    .bars span:nth-child(3) { height: 8px;  animation-delay: 0.3s; }
-    .bars span:nth-child(4) { height: 14px; animation-delay: 0.1s; }
-    .bars.paused span { animation-play-state: paused; }
-
-    @keyframes barBounce {
-      from { transform: scaleY(0.4); }
-      to   { transform: scaleY(1); }
-    }
-
-    /* ── Reveal area ── */
-    .reveal-area {
-      overflow: hidden;
-      max-height: 0;
-      opacity: 0;
-      transition: max-height 0.5s cubic-bezier(0.4,0,0.2,1), opacity 0.4s ease;
-    }
-    .reveal-area.visible {
-      max-height: 300px;
-      opacity: 1;
-    }
-
-    .reveal-card {
-      margin-top: 4px;
-      border-radius: 14px;
-      overflow: hidden;
-      position: relative;
-      display: flex;
-      gap: 0;
-    }
-
-    /* colorful left stripe */
-    .reveal-card::before {
-      content: '';
-      position: absolute;
-      left: 0; top: 0; bottom: 0;
-      width: 4px;
-      background: linear-gradient(180deg, var(--yellow), var(--pink), var(--purple));
-      border-radius: 4px 0 0 4px;
-    }
-
-    .reveal-inner {
-      display: flex;
-      gap: 14px;
-      align-items: center;
-      background: #222;
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 16px 16px 16px 20px;
-      width: 100%;
-    }
-
-    .album-art {
-      width: 76px; height: 76px;
-      border-radius: 8px;
-      object-fit: cover;
-      flex-shrink: 0;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-    }
-    .album-placeholder {
-      width: 76px; height: 76px;
-      border-radius: 8px;
-      background: var(--border);
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 1.6rem;
-    }
-
-    .song-info { flex: 1; min-width: 0; }
-
-    .song-year {
-      font-family: 'Syne', sans-serif;
-      font-size: 0.72rem;
-      font-weight: 700;
-      color: var(--yellow);
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      margin-bottom: 4px;
-    }
-    .song-name {
-      font-family: 'Syne', sans-serif;
-      font-size: 1.05rem;
-      font-weight: 700;
-      color: var(--text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      line-height: 1.2;
-    }
-    .song-artist {
-      font-size: 0.83rem;
-      color: #aaa;
-      margin-top: 3px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .song-album {
-      font-size: 0.75rem;
-      color: #555;
-      margin-top: 2px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    /* staggered reveal animation */
-    @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(6px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    .song-info > * { opacity: 0; animation: fadeUp 0.35s ease forwards; }
-    .song-info > *:nth-child(1) { animation-delay: 0.05s; }
-    .song-info > *:nth-child(2) { animation-delay: 0.12s; }
-    .song-info > *:nth-child(3) { animation-delay: 0.19s; }
-    .song-info > *:nth-child(4) { animation-delay: 0.26s; }
-
-    /* ── Spinner ── */
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .spinner {
-      width: 17px; height: 17px;
-      border: 2.5px solid rgba(255,255,255,0.25);
-      border-top-color: #fff;
-      border-radius: 50%;
-      animation: spin 0.7s linear infinite;
-      flex-shrink: 0;
-    }
-    .spinner.dark {
-      border-color: rgba(0,0,0,0.15);
-      border-top-color: #000;
-    }
-
-    /* ── Toast ── */
-    .toast {
-      position: fixed;
-      bottom: 28px;
-      left: 50%;
-      transform: translateX(-50%) translateY(60px);
-      background: #222;
-      color: var(--text);
-      border: 1px solid var(--border);
-      padding: 11px 22px;
-      border-radius: 40px;
-      font-size: 0.84rem;
-      z-index: 100;
-      transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s;
-      opacity: 0;
-      pointer-events: none;
-      max-width: 88vw;
-      text-align: center;
-      white-space: normal;
-    }
-    .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
-    .toast.error   { background: #3a1010; border-color: #c0392b; color: #ff6b6b; }
-    .toast.success { background: #0d2e1a; border-color: var(--green); color: var(--green); }
-
-    @media (max-width: 440px) {
-      .card { padding: 22px 18px; }
-    }
+    .eq { display:flex; gap:3px; align-items:flex-end; height:20px; }
+    .eq-bar { width:4px; border-radius:2px; background:var(--pink); animation:eq-bounce .8s ease-in-out infinite alternate; }
+    .eq-bar:nth-child(1) { height:60%; animation-delay:0s; }
+    .eq-bar:nth-child(2) { height:100%; animation-delay:.2s; }
+    .eq-bar:nth-child(3) { height:40%; animation-delay:.4s; }
+    .eq-bar:nth-child(4) { height:80%; animation-delay:.1s; }
+    .eq.paused .eq-bar { animation-play-state:paused; }
+    @keyframes eq-bounce { from { transform:scaleY(.3); } to { transform:scaleY(1); } }
   </style>
 </head>
 <body>
-
+<div class="stars"></div>
 <div class="container">
+
   <div class="header">
-    <h1><span class="word1">Song</span><br><span class="word2">Roulette</span></h1>
-    <p>Guess the song &bull; Reveal the answer</p>
+    <h1>🎵 Time Machine</h1>
+    <p>Guess the year, artist &amp; song</p>
   </div>
 
-  <div class="card">
+  <div class="vinyl-wrap">
+    <div class="vinyl" id="vinyl">
+      <img class="vinyl-art" id="vinylArt" src="" alt="album art"/>
+    </div>
+  </div>
 
-    <!-- Logged out -->
-    <div id="auth-section">
-      <button class="btn btn-spotify" id="login-btn" onclick="handleLogin()">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+  <div class="reveal-card" id="revealCard">
+    <img class="reveal-album" id="revealAlbum" src="" alt="album"/>
+    <div class="reveal-info">
+      <div class="reveal-year"  id="revealYear">—</div>
+      <div class="reveal-title" id="revealTitle">—</div>
+      <div class="reveal-artist" id="revealArtist">—</div>
+    </div>
+  </div>
+
+  <div class="device-warning" id="deviceWarning">
+    ⚠️ No active Spotify device found. Open Spotify on any device first, then try again.
+  </div>
+
+  <div class="buttons" id="buttonArea">
+    {% if not logged_in %}
+      <button class="btn btn-login" onclick="location.href='/login'">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm4.586 14.424c-.18.295-.563.387-.857.207-2.35-1.434-5.305-1.76-8.786-.963-.335.077-.67-.133-.746-.47-.077-.334.132-.67.47-.745 3.808-.87 7.076-.496 9.712 1.115.293.18.386.563.207.856zm1.223-2.722c-.226.367-.706.482-1.072.257-2.687-1.652-6.785-2.131-9.965-1.166-.413.127-.848-.106-.973-.517-.125-.413.108-.848.52-.973 3.632-1.102 8.147-.568 11.233 1.329.366.226.48.707.257 1.07zm.105-2.835C14.692 8.95 9.375 8.775 6.297 9.71c-.493.15-1.016-.129-1.166-.623-.148-.495.13-1.017.625-1.167 3.532-1.073 9.404-.866 13.115 1.337.445.264.59.838.327 1.282-.264.443-.838.59-1.284.328z"/>
+        </svg>
         Connect with Spotify
       </button>
-    </div>
+    {% else %}
+      <button class="btn btn-logout" onclick="location.href='/logout'">Disconnect ✕</button>
 
-    <!-- Logged in -->
-    <div id="logged-in-section" style="display:none; flex-direction:column; gap:12px;">
-
-      <div class="status-row">
-        <span class="status-dot"></span>
-        <span id="username-label">Connected</span>
-      </div>
-
-      <!-- Now playing indicator -->
-      <div class="now-playing" id="now-playing" style="display:none;">
-        <div class="bars" id="bars">
-          <span></span><span></span><span></span><span></span>
-        </div>
-        <span id="now-playing-label">Playing on Spotify</span>
-      </div>
-
-      <div class="divider"></div>
-
-      <!-- New Song -->
-      <button class="btn btn-new" id="new-song-btn" onclick="playRandomSong()">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-        New Song
+      <button class="btn btn-new" id="btnNew" onclick="newSong()">
+        <span id="btnNewInner">🎲 New Song</span>
       </button>
 
-      <!-- Pause / Resume -->
-      <button class="btn btn-pause" id="pause-btn" onclick="togglePause()" disabled>
-        <svg id="pause-icon" width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-        <svg id="play-icon"  width="17" height="17" viewBox="0 0 24 24" fill="currentColor" style="display:none;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span id="pause-label">Pause</span>
+      <button class="btn btn-reveal" id="btnReveal" onclick="toggleReveal()" disabled>
+        <span id="btnRevealInner">👁 Reveal</span>
       </button>
 
-      <!-- Reveal -->
-      <button class="btn btn-reveal" id="reveal-btn" onclick="revealSong()" disabled>
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-        Reveal Song
+      <button class="btn btn-pause" id="btnPause" onclick="togglePlayback()" disabled>
+        <span id="btnPauseIcon">
+          <span class="pause-icon"><div class="pause-bar"></div><div class="pause-bar"></div></span>
+        </span>
+        <span id="pauseLabel">Pause</span>
+        <span class="eq paused" id="eq">
+          <div class="eq-bar"></div><div class="eq-bar"></div>
+          <div class="eq-bar"></div><div class="eq-bar"></div>
+        </span>
       </button>
-
-      <!-- Reveal card -->
-      <div class="reveal-area" id="reveal-area">
-        <div class="reveal-card">
-          <div class="reveal-inner" id="reveal-inner"><!-- filled by JS --></div>
-        </div>
-      </div>
-
-      <div class="divider"></div>
-
-      <button class="btn btn-logout" onclick="handleLogout()">Sign out</button>
-    </div>
-
+    {% endif %}
   </div>
+
+  <div class="status" id="status">
+    {% if not logged_in %}Connect your Spotify account to start playing{% else %}Press New Song to begin 🎵{% endif %}
+  </div>
+
 </div>
-
-<div class="toast" id="toast"></div>
-
 <script>
-  let currentTrack = null;
-  let isPaused     = false;
-  let revealed     = false;
+  let currentSong = null;
+  let isPlaying   = false;
+  let revealed    = false;
 
-  async function init() {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('error')) {
-      showToast('Could not connect to Spotify. Please try again.', 'error');
-      window.history.replaceState({}, '', '/');
-    }
-    try {
-      const res  = await fetch('/api/status');
-      const data = await res.json();
-      if (data.logged_in) showLoggedIn(data.display_name);
-      else                showLoggedOut();
-    } catch { showLoggedOut(); }
+  function setStatus(msg, type='') {
+    const el = document.getElementById('status');
+    el.textContent = msg; el.className = 'status ' + type;
   }
 
-  function showLoggedOut() {
-    document.getElementById('auth-section').style.display = '';
-    document.getElementById('logged-in-section').style.display = 'none';
-  }
-
-  function showLoggedIn(name) {
-    document.getElementById('auth-section').style.display = 'none';
-    const s = document.getElementById('logged-in-section');
-    s.style.display = 'flex';
-    if (name) document.getElementById('username-label').textContent = name;
-  }
-
-  function handleLogin()  { window.location.href = '/login';  }
-  function handleLogout() { window.location.href = '/logout'; }
-
-  async function playRandomSong() {
-    const btn       = document.getElementById('new-song-btn');
-    const pauseBtn  = document.getElementById('pause-btn');
-    const revealBtn = document.getElementById('reveal-btn');
-
-    // Reset state
+  async function newSong() {
+    const btn = document.getElementById('btnNew');
+    btn.disabled = true;
+    document.getElementById('btnNewInner').innerHTML = '<div class="spinner"></div>';
+    setStatus('Finding a song from the archives...', 'loading');
     hideReveal();
-    revealed = false;
-    isPaused = false;
-    currentTrack = null;
-    pauseBtn.disabled  = true;
-    revealBtn.disabled = true;
-    setPlayingIndicator(false);
-    resetPauseBtn();
-
-    btn.disabled = true;
-    btn.innerHTML = `<span class="spinner"></span> Finding song...`;
+    document.getElementById('deviceWarning').classList.remove('visible');
+    document.getElementById('vinyl').classList.remove('playing');
+    document.getElementById('vinylArt').classList.remove('visible');
 
     try {
-      const res  = await fetch('/api/play_random');
+      const res  = await fetch('/api/random-song');
       const data = await res.json();
-      if (!res.ok) {
-        showToast(data.error || 'Something went wrong.', 'error');
+
+      if (data.error === 'not_logged_in') { setStatus('Please log in first.', 'error'); return; }
+      if (data.error) { setStatus("Couldn't find a song — try again!", 'error'); return; }
+
+      currentSong = data;
+      isPlaying   = data.played;
+
+      if (!data.played) {
+        document.getElementById('deviceWarning').classList.add('visible');
+        setStatus('Song found but Spotify isn\'t playing. Is Spotify open?', 'error');
       } else {
-        currentTrack = data.track;
-        pauseBtn.disabled  = false;
-        revealBtn.disabled = false;
-        setPlayingIndicator(true);
-        showToast('▶ Now playing on Spotify', 'success');
+        setStatus('🎵 A song is playing... can you guess the year?', 'success');
+        document.getElementById('vinyl').classList.add('playing');
+        updateEq(true); updatePauseBtn(true);
       }
-    } catch {
-      showToast('Network error. Please try again.', 'error');
+
+      if (data.album_art) {
+        const art = document.getElementById('vinylArt');
+        art.src = data.album_art; art.classList.add('visible');
+      }
+
+      document.getElementById('btnReveal').disabled = false;
+      document.getElementById('btnPause').disabled  = false;
+      document.getElementById('btnRevealInner').textContent = '👁 Reveal';
+      document.getElementById('btnReveal').classList.remove('revealed');
+
+    } catch(e) {
+      setStatus('Something went wrong, try again.', 'error');
     } finally {
       btn.disabled = false;
-      btn.innerHTML = `
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
-        New Song`;
+      document.getElementById('btnNewInner').textContent = '🎲 New Song';
     }
   }
 
-  async function togglePause() {
-    const btn = document.getElementById('pause-btn');
-    btn.disabled = true;
-
-    try {
-      const endpoint = isPaused ? '/api/resume' : '/api/pause';
-      const res = await fetch(endpoint, { method: 'POST' });
-      if (res.ok) {
-        isPaused = !isPaused;
-        updatePauseBtn();
-        setPlayingIndicator(!isPaused);
-      } else {
-        showToast('Could not control playback.', 'error');
-      }
-    } catch {
-      showToast('Network error.', 'error');
-    } finally {
-      btn.disabled = false;
-    }
+  function toggleReveal() {
+    if (!currentSong) return;
+    if (!revealed) showReveal(); else hideReveal();
   }
 
-  function updatePauseBtn() {
-    const btn       = document.getElementById('pause-btn');
-    const pauseIcon = document.getElementById('pause-icon');
-    const playIcon  = document.getElementById('play-icon');
-    const label     = document.getElementById('pause-label');
-
-    if (isPaused) {
-      btn.classList.add('is-paused');
-      pauseIcon.style.display = 'none';
-      playIcon.style.display  = '';
-      label.textContent = 'Resume';
-    } else {
-      btn.classList.remove('is-paused');
-      pauseIcon.style.display = '';
-      playIcon.style.display  = 'none';
-      label.textContent = 'Pause';
-    }
-  }
-
-  function resetPauseBtn() {
-    isPaused = false;
-    updatePauseBtn();
-  }
-
-  function setPlayingIndicator(playing) {
-    const el    = document.getElementById('now-playing');
-    const bars  = document.getElementById('bars');
-    const label = document.getElementById('now-playing-label');
-    if (playing || isPaused) {
-      el.style.display = 'flex';
-      label.textContent = isPaused ? 'Paused' : 'Playing on Spotify';
-      bars.classList.toggle('paused', isPaused);
-    } else {
-      el.style.display = 'none';
-    }
-  }
-
-  function revealSong() {
-    if (!currentTrack || revealed) return;
+  function showReveal() {
+    document.getElementById('revealYear').textContent   = currentSong.year   || '—';
+    document.getElementById('revealTitle').textContent  = currentSong.title  || '—';
+    document.getElementById('revealArtist').textContent = currentSong.artist || '—';
+    const img = document.getElementById('revealAlbum');
+    if (currentSong.album_art) { img.src = currentSong.album_art; img.style.display='block'; }
+    else img.style.display='none';
+    document.getElementById('revealCard').classList.add('visible');
     revealed = true;
-
-    const inner = document.getElementById('reveal-inner');
-    const imgHTML = currentTrack.album_image
-      ? `<img class="album-art" src="${currentTrack.album_image}" alt="Album art"/>`
-      : `<div class="album-placeholder">🎵</div>`;
-
-    inner.innerHTML = `
-      ${imgHTML}
-      <div class="song-info">
-        <div class="song-year">${currentTrack.year || '—'}</div>
-        <div class="song-name">${escapeHtml(currentTrack.name)}</div>
-        <div class="song-artist">${escapeHtml(currentTrack.artists.join(', '))}</div>
-        <div class="song-album">${escapeHtml(currentTrack.album)}</div>
-      </div>
-    `;
-
-    document.getElementById('reveal-area').classList.add('visible');
-
-    const btn = document.getElementById('reveal-btn');
-    btn.disabled = true;
-    btn.innerHTML = `
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
-      ${escapeHtml(currentTrack.name)}
-    `;
+    document.getElementById('btnRevealInner').textContent = '🙈 Hide';
+    document.getElementById('btnReveal').classList.add('revealed');
   }
 
   function hideReveal() {
-    document.getElementById('reveal-area').classList.remove('visible');
-    const btn = document.getElementById('reveal-btn');
-    btn.innerHTML = `
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-      Reveal Song`;
+    document.getElementById('revealCard').classList.remove('visible');
+    revealed = false;
+    const btn = document.getElementById('btnReveal');
+    if (btn) { document.getElementById('btnRevealInner').textContent = '👁 Reveal'; btn.classList.remove('revealed'); }
+  }
+
+  async function togglePlayback() {
+    const btn = document.getElementById('btnPause');
     btn.disabled = true;
+    try {
+      const endpoint = isPlaying ? '/api/pause' : '/api/resume';
+      const res = await fetch(endpoint, { method:'POST' });
+      const d   = await res.json();
+      if (d.status === 200 || d.status === 204) {
+        isPlaying = !isPlaying;
+        updatePauseBtn(isPlaying); updateEq(isPlaying);
+        document.getElementById('vinyl').classList.toggle('playing', isPlaying);
+        setStatus(isPlaying ? '▶️ Playing...' : '⏸ Paused', isPlaying ? 'success' : '');
+      }
+    } finally { btn.disabled = false; }
   }
 
-  function escapeHtml(str) {
-    const d = document.createElement('div');
-    d.appendChild(document.createTextNode(str || ''));
-    return d.innerHTML;
+  function updatePauseBtn(playing) {
+    document.getElementById('btnPauseIcon').innerHTML = playing
+      ? '<span class="pause-icon"><div class="pause-bar"></div><div class="pause-bar"></div></span>'
+      : '<span class="play-icon"><div class="play-triangle"></div></span>';
+    document.getElementById('pauseLabel').textContent = playing ? 'Pause' : 'Resume';
   }
 
-  let toastTimer;
-  function showToast(msg, type = '') {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.className   = 'toast show' + (type ? ' ' + type : '');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+  function updateEq(playing) {
+    const eq = document.getElementById('eq');
+    if (eq) playing ? eq.classList.remove('paused') : eq.classList.add('paused');
   }
-
-  init();
 </script>
 </body>
 </html>
+```
+
+---
+
+## ⚙️ Render Setup Checklist
+
+Before deploying, make sure these are set in your Render service's **Environment Variables**:
+
+| Key | Value |
+|-----|-------|
+| `SPOTIFY_CLIENT_ID` | your Spotify app client ID |
+| `SPOTIFY_CLIENT_SECRET` | your Spotify app client secret |
+| `REDIRECT_URI` | `https://your-render-url.onrender.com/callback` |
+| `FLASK_SECRET_KEY` | any long random string (or use Render's "Generate" button) |
+
+Also in your **Spotify Developer Dashboard** → your app → **Redirect URIs**, add:
+```
+https://your-render-url.onrender.com/callback
