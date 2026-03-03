@@ -2,7 +2,10 @@ import os
 import random
 import requests
 import urllib.parse
+import logging
 from flask import Flask, redirect, request, session, jsonify, render_template
+
+logging.basicConfig(level=logging.DEBUG)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24))
@@ -10,20 +13,22 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", os.urandom(24))
 CLIENT_ID     = os.environ.get("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("SPOTIFY_CLIENT_SECRET")
 REDIRECT_URI  = os.environ.get("REDIRECT_URI")
+LASTFM_API_KEY = os.environ.get("LASTFM_API_KEY")
 
 SPOTIFY_AUTH_URL  = "https://accounts.spotify.com/authorize"
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
 SPOTIFY_API_BASE  = "https://api.spotify.com/v1"
-MB_API_BASE       = "https://musicbrainz.org/ws/2"
-MB_HEADERS        = {"User-Agent": "MusicTimeMachineApp/1.0 (contact@example.com)"}
+LASTFM_API_BASE   = "http://ws.audioscrobbler.com/2.0/"
 
 YEAR_RANGE = (1940, 2025)
 
-# ─── Genre bias ────────────────────────────────────────────────
+# ─── Genre bias ─────────────────────────────────────────────────
 # 0.0 = fully balanced  |  1.0 = always rock
-# Change this value to add a rock bias (e.g. 0.7 for strong rock)
-ROCK_BIAS = 0.7
-# ───────────────────────────────────────────────────────────────
+ROCK_BIAS = 0.0
+# ────────────────────────────────────────────────────────────────
+
+TAGS = ["pop", "rock", "soul", "jazz", "country", "rnb",
+        "classic rock", "folk", "disco", "punk", "hip-hop", "electronic"]
 
 
 def sp_headers():
@@ -61,7 +66,7 @@ def sp_put(url, **kwargs):
     return r
 
 
-# ── Routes ──────────────────────────────────────────────────────
+# ── Routes ───────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -92,11 +97,11 @@ def callback():
     if not code:
         return redirect("/?error=auth_failed")
     r = requests.post(SPOTIFY_TOKEN_URL, data={
-        "grant_type":   "authorization_code",
-        "code":          code,
-        "redirect_uri":  REDIRECT_URI,
-        "client_id":     CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
+        "grant_type":    "authorization_code",
+        "code":           code,
+        "redirect_uri":   REDIRECT_URI,
+        "client_id":      CLIENT_ID,
+        "client_secret":  CLIENT_SECRET,
     })
     if not r.ok:
         return redirect("/?error=token_failed")
@@ -112,36 +117,46 @@ def logout():
     return redirect("/")
 
 
-LASTFM_API_BASE = "http://ws.audioscrobbler.com/2.0/"
-LASTFM_API_KEY  = os.environ.get("05f3bb37e8390c0d24878a5540033618")
-
 @app.route("/api/random-song")
 def random_song():
     if "access_token" not in session:
         return jsonify({"error": "not_logged_in"}), 401
 
-    for _attempt in range(6):
+    if not LASTFM_API_KEY:
+        logging.error("LASTFM_API_KEY is not set!")
+        return jsonify({"error": "lastfm_key_missing"}), 500
+
+    for attempt in range(6):
         year = random.randint(*YEAR_RANGE)
         use_rock = ROCK_BIAS > 0 and random.random() < ROCK_BIAS
-        tag = "rock" if use_rock else random.choice([
-            "pop", "rock", "soul", "jazz", "country", "rnb", "classic rock", "folk", "disco", "punk"
-        ])
+        tag = "rock" if use_rock else random.choice(TAGS)
+        page = random.randint(1, 5)
 
-        # Get top tracks for this tag from Last.fm
-        lfm = requests.get(LASTFM_API_BASE, params={
-            "method":  "tag.gettoptracks",
-            "tag":     tag,
-            "api_key": LASTFM_API_KEY,
-            "format":  "json",
-            "limit":   100,
-            "page":    random.randint(1, 5),
-        }, timeout=10)
+        logging.debug(f"Attempt {attempt+1}: year={year}, tag={tag}, page={page}")
 
-        if not lfm.ok:
+        try:
+            lfm = requests.get(LASTFM_API_BASE, params={
+                "method":  "tag.gettoptracks",
+                "tag":     tag,
+                "api_key": LASTFM_API_KEY,
+                "format":  "json",
+                "limit":   100,
+                "page":    page,
+            }, timeout=10)
+        except Exception as e:
+            logging.error(f"Last.fm request failed: {e}")
             continue
 
-        tracks = lfm.json().get("tracks", {}).get("track", [])
+        if not lfm.ok:
+            logging.error(f"Last.fm returned {lfm.status_code}: {lfm.text[:200]}")
+            continue
+
+        data = lfm.json()
+        tracks = data.get("tracks", {}).get("track", [])
+        logging.debug(f"Last.fm returned {len(tracks)} tracks")
+
         if not tracks:
+            logging.warning(f"No tracks for tag={tag} page={page}")
             continue
 
         random.shuffle(tracks)
@@ -152,14 +167,22 @@ def random_song():
             if not artist or not title:
                 continue
 
-            # Search Spotify for this track
-            sp = sp_get(f"{SPOTIFY_API_BASE}/search", params={
-                "q":     f"track:{title} artist:{artist}",
-                "type":  "track",
-                "limit": 3,
-            })
-            if not sp.ok:
+            logging.debug(f"Trying: {artist} - {title}")
+
+            try:
+                sp = sp_get(f"{SPOTIFY_API_BASE}/search", params={
+                    "q":     f"track:{title} artist:{artist}",
+                    "type":  "track",
+                    "limit": 3,
+                })
+            except Exception as e:
+                logging.error(f"Spotify search failed: {e}")
                 continue
+
+            if not sp.ok:
+                logging.error(f"Spotify search returned {sp.status_code}")
+                continue
+
             items = sp.json().get("tracks", {}).get("items", [])
             if not items:
                 continue
@@ -172,14 +195,16 @@ def random_song():
             release   = track["album"].get("release_date", str(year))
             sp_year   = release[:4] if release else str(year)
 
-            # Only keep if year falls in range
             if not (YEAR_RANGE[0] <= int(sp_year) <= YEAR_RANGE[1]):
+                logging.debug(f"Year {sp_year} out of range, skipping")
                 continue
 
             play = sp_put(
                 f"{SPOTIFY_API_BASE}/me/player/play",
                 json={"uris": [track_uri]},
             )
+
+            logging.debug(f"Play response: {play.status_code}")
 
             return jsonify({
                 "year":        sp_year,
@@ -191,6 +216,7 @@ def random_song():
                 "play_status": play.status_code,
             })
 
+    logging.error("All 6 attempts failed to find a song")
     return jsonify({"error": "could_not_find_song"}), 500
 
 
