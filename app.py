@@ -24,33 +24,73 @@ LASTFM_API_BASE   = "http://ws.audioscrobbler.com/2.0/"
 
 YEAR_RANGE = (1940, 2025)
 
-# ─── Tune these to your taste ───────────────────────────────────
-
-# 0.0 = fully balanced  |  1.0 = always rock
-ROCK_BIAS = 0.0
-
-# How many top tracks to pull from per tag (lower = more popular songs)
-# 10  = only the biggest hits
-# 50  = well-known songs
-# 200 = deeper cuts
-POPULARITY_POOL = 50
-
-# How many songs to pre-fetch and keep ready in the stack
-STACK_SIZE = 5
-
+# ─── Tune these ─────────────────────────────────────────────────
+ROCK_BIAS       = 0.0   # 0.0 = balanced, 1.0 = always rock
+POPULARITY_POOL = 50    # lower = more famous songs (min 10, max 100)
+STACK_SIZE      = 5     # songs pre-fetched in background
+YEAR_TOLERANCE  = 3     # ±years accepted around the target year
 # ────────────────────────────────────────────────────────────────
 
-TAGS = ["pop", "rock", "soul", "jazz", "country", "rnb",
-        "classic rock", "folk", "disco", "punk", "hip-hop", "electronic"]
+# Decade tags on Last.fm — hugely populated with well-known songs
+DECADE_TAGS = {
+    1940: ["40s"],
+    1950: ["50s"],
+    1960: ["60s"],
+    1970: ["70s"],
+    1980: ["80s"],
+    1990: ["90s"],
+    2000: ["2000s"],
+    2010: ["2010s"],
+    2020: ["2020s"],
+}
 
-# Global pre-fetch stack (list of song dicts, ready to serve)
-song_stack = deque()
-stack_lock = threading.Lock()
+GENRE_TAGS = ["pop", "rock", "soul", "jazz", "country", "rnb",
+              "classic rock", "folk", "disco", "punk", "hip-hop", "electronic"]
+
+COMPILATION_KEYWORDS = [
+    "greatest hits", "best of", "collection", "remaster", "remastered",
+    "anthology", "platinum", "gold", "essential", "ultimate", "definitive",
+    "anniversary", "deluxe", "legacy", "years", "historia",
+    "very best", "all time", "hits collection", "the singles",
+]
+
+song_stack    = deque()
+stack_lock    = threading.Lock()
 stack_filling = False
 
+_cc_token_cache = {"token": None, "expires_at": 0}
 
-def sp_headers():
-    return {"Authorization": f"Bearer {session.get('access_token')}"}
+
+# ── Helpers ──────────────────────────────────────────────────────
+
+def year_to_decade_tag(year):
+    decade_start = (year // 10) * 10
+    return DECADE_TAGS.get(decade_start, ["60s"])[0]
+
+
+def is_compilation(album_name):
+    n = album_name.lower()
+    return any(kw in n for kw in COMPILATION_KEYWORDS)
+
+
+def get_client_credentials_token():
+    import time
+    now = time.time()
+    if _cc_token_cache["token"] and now < _cc_token_cache["expires_at"] - 60:
+        return _cc_token_cache["token"]
+    try:
+        r = requests.post(SPOTIFY_TOKEN_URL,
+            data={"grant_type": "client_credentials"},
+            auth=(CLIENT_ID, CLIENT_SECRET),
+            timeout=8)
+        if r.ok:
+            d = r.json()
+            _cc_token_cache["token"]      = d["access_token"]
+            _cc_token_cache["expires_at"] = now + d.get("expires_in", 3600)
+            return _cc_token_cache["token"]
+    except Exception as e:
+        logging.error(f"CC token failed: {e}")
+    return None
 
 
 def try_refresh():
@@ -69,56 +109,60 @@ def try_refresh():
     return False
 
 
-def sp_get(url, token, **kwargs):
-    hdrs = {"Authorization": f"Bearer {token}"}
-    r = requests.get(url, headers=hdrs, **kwargs)
-    return r
-
-
 def sp_put(url, token, **kwargs):
     hdrs = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    r = requests.put(url, headers=hdrs, **kwargs)
-    return r
+    return requests.put(url, headers=hdrs, **kwargs)
 
 
-def get_original_year(artist, title):
-    """Ask Last.fm for the original release year of a track."""
+def get_lastfm_year(artist, title):
+    """
+    Ask Last.fm track.getInfo for the real original release year.
+    This is our ground truth — we never use Spotify's year.
+    Returns an int year or None.
+    """
     try:
         r = requests.get(LASTFM_API_BASE, params={
-            "method":   "track.getInfo",
-            "artist":   artist,
-            "track":    title,
-            "api_key":  LASTFM_API_KEY,
-            "format":   "json",
+            "method":  "track.getInfo",
+            "artist":  artist,
+            "track":   title,
+            "api_key": LASTFM_API_KEY,
+            "format":  "json",
         }, timeout=6)
         if not r.ok:
             return None
         data = r.json()
-        wiki = data.get("track", {}).get("wiki", {})
-        published = wiki.get("published", "")
-        # Last.fm wiki published date looks like "01 Jan 1979, 00:00"
+
+        # Source 1: wiki published date e.g. "14 Oct 1978, 00:00"
+        published = data.get("track", {}).get("wiki", {}).get("published", "")
         if published:
             parts = published.strip().split(" ")
             if len(parts) >= 3:
-                year_str = parts[2].replace(",", "")
-                if year_str.isdigit() and 1900 <= int(year_str) <= 2025:
-                    return year_str
-        # Fallback: check album release date from Last.fm
-        album = data.get("track", {}).get("album", {})
-        if album:
-            # Last.fm doesn't always give year here, but try
-            pass
+                y = parts[2].replace(",", "")
+                if y.isdigit() and 1930 <= int(y) <= 2025:
+                    logging.debug(f"Last.fm wiki year: {artist} - {title} => {y}")
+                    return int(y)
+
+        # Source 2: album releasedate field
+        releasedate = data.get("track", {}).get("album", {}).get("releasedate", "")
+        if releasedate:
+            parts = releasedate.strip().split(" ")
+            if len(parts) >= 3:
+                y = parts[2].replace(",", "")
+                if y.isdigit() and 1930 <= int(y) <= 2025:
+                    logging.debug(f"Last.fm album year: {artist} - {title} => {y}")
+                    return int(y)
+
         return None
     except Exception as e:
-        logging.debug(f"get_original_year failed: {e}")
+        logging.debug(f"get_lastfm_year failed: {e}")
         return None
 
 
-def get_spotify_original_year(artist, title, token):
+def get_spotify_track(artist, title, token):
     """
-    Search Spotify for the track and find the earliest release year
-    across all albums (not just the first result).
-    This avoids getting a 2002 compilation when the song is from 1979.
+    Search Spotify for the track.
+    Returns (track_uri, album_art, sp_artist, sp_title) or None on failure.
+    We do NOT use Spotify's year at all — only URI and art.
     """
     try:
         r = requests.get(f"{SPOTIFY_API_BASE}/search",
@@ -126,144 +170,132 @@ def get_spotify_original_year(artist, title, token):
             params={
                 "q":     f"track:{title} artist:{artist}",
                 "type":  "track",
-                "limit": 10,   # get more results to find the earliest
+                "limit": 10,
             }, timeout=8)
         if not r.ok:
-            return None, None, None, None
+            return None
+
         items = r.json().get("tracks", {}).get("items", [])
         if not items:
-            return None, None, None, None
+            return None
 
-        # Find the track with the earliest release date
-        best_track = None
-        best_year = 9999
-        for track in items:
-            release = track["album"].get("release_date", "")
-            if release:
-                yr = int(release[:4])
-                if yr < best_year:
-                    best_year = yr
-                    best_track = track
+        # Prefer non-compilation albums — but only for choosing which result to use
+        real = [t for t in items if not is_compilation(t["album"]["name"])]
+        best = real[0] if real else items[0]
 
-        if not best_track:
-            best_track = items[0]
-            best_year = int(best_track["album"].get("release_date", "2000")[:4])
-
-        sp_artist = best_track["artists"][0]["name"]
-        sp_title  = best_track["name"]
-        album_art = best_track["album"]["images"][0]["url"] if best_track["album"]["images"] else None
-        track_uri = best_track["uri"]
-
-        return str(best_year), sp_artist, sp_title, album_art, track_uri
-
+        album_art = best["album"]["images"][0]["url"] if best["album"]["images"] else None
+        return {
+            "track_uri": best["uri"],
+            "album_art": album_art,
+            "sp_artist": best["artists"][0]["name"],
+            "sp_title":  best["name"],
+        }
     except Exception as e:
-        logging.debug(f"get_spotify_original_year failed: {e}")
-        return None, None, None, None, None
+        logging.debug(f"get_spotify_track failed: {e}")
+        return None
 
 
-def build_one_song():
+def build_one_song(target_year=None):
     """
-    Find one valid song (Last.fm → Spotify) and return it as a dict.
-    Does NOT play it — just prepares the metadata.
-    Returns None if nothing found after attempts.
+    Find one song, optionally targeting a specific year.
+    Year is ALWAYS determined by Last.fm track.getInfo — never Spotify.
     """
-    for attempt in range(8):
-        use_rock = ROCK_BIAS > 0 and random.random() < ROCK_BIAS
-        tag  = "rock" if use_rock else random.choice(TAGS)
-        page = random.randint(1, max(1, POPULARITY_POOL // 100 + 1))
+    if target_year is None:
+        target_year = random.randint(*YEAR_RANGE)
 
-        try:
-            lfm = requests.get(LASTFM_API_BASE, params={
-                "method":  "tag.gettoptracks",
-                "tag":     tag,
-                "api_key": LASTFM_API_KEY,
-                "format":  "json",
-                "limit":   min(POPULARITY_POOL, 100),
-                "page":    page,
-            }, timeout=10)
-        except Exception as e:
-            logging.error(f"Last.fm request failed: {e}")
-            continue
+    decade_tag = year_to_decade_tag(target_year)
 
-        if not lfm.ok:
-            logging.error(f"Last.fm {lfm.status_code}")
-            continue
+    # We'll try decade tag first, then genre tags as fallback
+    tags_to_try = [decade_tag]
+    if ROCK_BIAS > 0 and random.random() < ROCK_BIAS:
+        tags_to_try = ["rock"] + tags_to_try
+    else:
+        tags_to_try += [random.choice(GENRE_TAGS)]
 
-        tracks = lfm.json().get("tracks", {}).get("track", [])
-        if not tracks:
-            continue
+    cc_token = get_client_credentials_token()
+    if not cc_token:
+        logging.error("No CC token available")
+        return None
 
-        # Limit to POPULARITY_POOL
-        pool = tracks[:POPULARITY_POOL]
-        random.shuffle(pool)
+    best_song    = None   # best candidate so far (closest year)
+    best_yr_diff = 9999
 
-        for t in pool[:8]:
-            artist = t.get("artist", {}).get("name", "")
-            title  = t.get("name", "")
-            if not artist or not title:
+    for tag in tags_to_try:
+        for page in [1, 2]:
+            try:
+                lfm = requests.get(LASTFM_API_BASE, params={
+                    "method":  "tag.gettoptracks",
+                    "tag":     tag,
+                    "api_key": LASTFM_API_KEY,
+                    "format":  "json",
+                    "limit":   min(POPULARITY_POOL, 100),
+                    "page":    page,
+                }, timeout=10)
+            except Exception as e:
+                logging.error(f"Last.fm failed: {e}")
                 continue
 
-            # We need a token to search Spotify — use a client credentials token
-            # (no user auth needed for search)
-            cc_token = get_client_credentials_token()
-            if not cc_token:
-                logging.error("Could not get client credentials token")
-                return None
-
-            result = get_spotify_original_year(artist, title, cc_token)
-            if len(result) != 5 or result[0] is None:
+            if not lfm.ok:
                 continue
 
-            sp_year, sp_artist, sp_title, album_art, track_uri = result
-
-            # Validate year range
-            if not (YEAR_RANGE[0] <= int(sp_year) <= YEAR_RANGE[1]):
+            tracks = lfm.json().get("tracks", {}).get("track", [])
+            if not tracks:
                 continue
 
-            # Try Last.fm for a more accurate original year
-            lastfm_year = get_original_year(sp_artist, sp_title)
-            if lastfm_year and YEAR_RANGE[0] <= int(lastfm_year) <= YEAR_RANGE[1]:
-                final_year = lastfm_year
-            else:
-                final_year = sp_year
+            pool = tracks[:POPULARITY_POOL]
+            random.shuffle(pool)
 
-            logging.debug(f"Stack built: {sp_artist} - {sp_title} ({final_year})")
-            return {
-                "year":      final_year,
-                "artist":    sp_artist,
-                "title":     sp_title,
-                "album_art": album_art,
-                "track_uri": track_uri,
-            }
+            for t in pool[:15]:
+                artist = t.get("artist", {}).get("name", "")
+                title  = t.get("name", "")
+                if not artist or not title:
+                    continue
 
-    return None
+                # Get the real year from Last.fm FIRST
+                real_year = get_lastfm_year(artist, title)
+                if real_year is None:
+                    logging.debug(f"No Last.fm year for {artist} - {title}, skipping")
+                    continue
 
+                yr_diff = abs(real_year - target_year)
+                logging.debug(f"{artist} - {title}: real_year={real_year}, target={target_year}, diff={yr_diff}")
 
-_cc_token_cache = {"token": None, "expires_at": 0}
+                # Perfect match — use it immediately
+                if yr_diff <= YEAR_TOLERANCE:
+                    sp = get_spotify_track(artist, title, cc_token)
+                    if sp:
+                        logging.debug(f"✓ Found match: {artist} - {title} ({real_year})")
+                        return {
+                            "year":      str(real_year),
+                            "artist":    sp["sp_artist"],
+                            "title":     sp["sp_title"],
+                            "album_art": sp["album_art"],
+                            "track_uri": sp["track_uri"],
+                        }
 
-def get_client_credentials_token():
-    """Get a Spotify app token (no user needed) for searching."""
-    import time
-    now = time.time()
-    if _cc_token_cache["token"] and now < _cc_token_cache["expires_at"] - 60:
-        return _cc_token_cache["token"]
-    try:
-        r = requests.post(SPOTIFY_TOKEN_URL,
-            data={"grant_type": "client_credentials"},
-            auth=(CLIENT_ID, CLIENT_SECRET),
-            timeout=8)
-        if r.ok:
-            d = r.json()
-            _cc_token_cache["token"] = d["access_token"]
-            _cc_token_cache["expires_at"] = now + d.get("expires_in", 3600)
-            return _cc_token_cache["token"]
-    except Exception as e:
-        logging.error(f"CC token failed: {e}")
+                # Keep track of closest song found so far as fallback
+                if yr_diff < best_yr_diff:
+                    sp = get_spotify_track(artist, title, cc_token)
+                    if sp:
+                        best_yr_diff = yr_diff
+                        best_song = {
+                            "year":      str(real_year),
+                            "artist":    sp["sp_artist"],
+                            "title":     sp["sp_title"],
+                            "album_art": sp["album_art"],
+                            "track_uri": sp["track_uri"],
+                        }
+
+    # Nothing within tolerance — return closest found (still correct year from Last.fm)
+    if best_song:
+        logging.debug(f"Using closest match: {best_song['artist']} - {best_song['title']} ({best_song['year']}, diff={best_yr_diff})")
+        return best_song
+
+    logging.warning(f"build_one_song failed for target_year={target_year}")
     return None
 
 
 def fill_stack_background():
-    """Fill the song stack up to STACK_SIZE in a background thread."""
     global stack_filling
     with stack_lock:
         if stack_filling:
@@ -279,14 +311,13 @@ def fill_stack_background():
             if song:
                 with stack_lock:
                     song_stack.append(song)
-                    logging.debug(f"Stack size now: {len(song_stack)}")
+                    logging.debug(f"Stack now: {len(song_stack)}")
     finally:
         with stack_lock:
             stack_filling = False
 
 
 def ensure_stack_filling():
-    """Kick off background fill if stack is low."""
     with stack_lock:
         size = len(song_stack)
     if size < STACK_SIZE:
@@ -298,7 +329,6 @@ def ensure_stack_filling():
 
 @app.route("/")
 def index():
-    # Start filling the stack as soon as someone loads the page
     ensure_stack_filling()
     return render_template("index.html", logged_in="access_token" in session)
 
@@ -357,43 +387,40 @@ def random_song():
         logging.error("LASTFM_API_KEY is not set!")
         return jsonify({"error": "lastfm_key_missing"}), 500
 
-    # Try to pop from pre-fetched stack
+    # Pop from pre-fetched stack
     song = None
     with stack_lock:
         if song_stack:
             song = song_stack.popleft()
-            logging.debug(f"Popped from stack. Stack now has {len(song_stack)}")
+            logging.debug(f"Popped from stack. Stack now: {len(song_stack)}")
 
-    # If stack was empty, build one now (slower, fallback)
+    # Stack empty — build on demand (spinner shows)
     if song is None:
-        logging.warning("Stack was empty — building song on demand")
+        logging.warning("Stack empty — building on demand")
         song = build_one_song()
 
-    # Kick off background refill
+    # Always refill stack in background
     ensure_stack_filling()
 
     if not song:
         return jsonify({"error": "could_not_find_song"}), 500
 
-    # Now play it using the user's token
+    # Play on Spotify using user's token
     token = session.get("access_token")
-    play = sp_put(
+    play  = sp_put(
         f"{SPOTIFY_API_BASE}/me/player/play",
         token=token,
         json={"uris": [song["track_uri"]]},
     )
+    if play.status_code == 401 and try_refresh():
+        token = session.get("access_token")
+        play  = sp_put(
+            f"{SPOTIFY_API_BASE}/me/player/play",
+            token=token,
+            json={"uris": [song["track_uri"]]},
+        )
 
-    # Handle token expiry for playback
-    if play.status_code == 401:
-        if try_refresh():
-            token = session.get("access_token")
-            play = sp_put(
-                f"{SPOTIFY_API_BASE}/me/player/play",
-                token=token,
-                json={"uris": [song["track_uri"]]},
-            )
-
-    logging.debug(f"Play response: {play.status_code} for {song['artist']} - {song['title']} ({song['year']})")
+    logging.debug(f"Play {play.status_code}: {song['artist']} - {song['title']} ({song['year']})")
 
     return jsonify({
         "year":        song["year"],
